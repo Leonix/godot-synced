@@ -30,6 +30,10 @@ config/name="Network Multiplayer Library"
 run/main_scene="res://playground/pong/lobby.tscn"
 config/icon="res://icon.png"
 
+[autoload]
+
+SyncManager="*res://sync/SyncManager.gd"
+
 [debug]
 
 gdscript/warnings/return_value_discarded=false
