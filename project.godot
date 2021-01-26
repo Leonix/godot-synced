@@ -13,9 +13,15 @@ _global_script_classes=[ {
 "class": "SyncBase",
 "language": "GDScript",
 "path": "res://sync/SyncBase.gd"
+}, {
+"base": "Reference",
+"class": "SyncProperty",
+"language": "GDScript",
+"path": "res://sync/SyncProperty.gd"
 } ]
 _global_script_class_icons={
-"SyncBase": ""
+"SyncBase": "",
+"SyncProperty": ""
 }
 
 [application]

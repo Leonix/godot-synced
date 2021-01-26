@@ -1,10 +1,10 @@
 extends "res://addons/gut/test.gd"
 
-var SyncBase = null
+var SyncProperty = null
 var prop = null
 
 func before_all():
-	SyncBase = load("res://sync/SyncBase.gd")
+	SyncProperty = load("res://sync/SyncProperty.gd")
 	
 func before_each():
 	pass
@@ -13,13 +13,13 @@ func after_each():
 	prop = null
 
 func after_all():
-	SyncBase = null
+	SyncProperty = null
 
 func test_no_interpolation():
 	assert_null(prop)
-	prop = SyncBase.SyncProperty.new({})
-	assert_eq(SyncBase.SyncProperty.NO_INTERPOLATION, prop.interpolation)
-	assert_eq(SyncBase.SyncProperty.NO_INTERPOLATION, prop.missing_state_interpolation)
+	prop = SyncProperty.new({})
+	assert_eq(SyncProperty.NO_INTERPOLATION, prop.interpolation)
+	assert_eq(SyncProperty.NO_INTERPOLATION, prop.missing_state_interpolation)
 	prop.resize(10)
 	prop.write(12, 100.0)
 	assert_eq(10, prop.container.size())
@@ -38,12 +38,12 @@ func test_no_interpolation():
 
 func test_linear_interpolation():
 	assert_null(prop)
-	prop = SyncBase.SyncProperty.new({
-		interpolation = SyncBase.SyncProperty.LINEAR_INTERPOLATION,
-		missing_state_interpolation = SyncBase.SyncProperty.LINEAR_INTERPOLATION
+	prop = SyncProperty.new({
+		interpolation = SyncProperty.LINEAR_INTERPOLATION,
+		missing_state_interpolation = SyncProperty.LINEAR_INTERPOLATION
 	})
-	assert_eq(SyncBase.SyncProperty.LINEAR_INTERPOLATION, prop.interpolation)
-	assert_eq(SyncBase.SyncProperty.LINEAR_INTERPOLATION, prop.missing_state_interpolation)
+	assert_eq(SyncProperty.LINEAR_INTERPOLATION, prop.interpolation)
+	assert_eq(SyncProperty.LINEAR_INTERPOLATION, prop.missing_state_interpolation)
 	prop.resize(6)
 	prop.write(11, 111.0)
 	assert_eq(11, prop.last_state_id)
@@ -71,7 +71,7 @@ func test_linear_interpolation():
 
 func test_get_index():
 	assert_null(prop)
-	prop = SyncBase.SyncProperty.new({})
+	prop = SyncProperty.new({})
 	prop.resize(4)
 	prop.write(11, 111.0)
 	prop.write(12, 112.0)
