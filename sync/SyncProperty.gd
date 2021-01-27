@@ -75,9 +75,6 @@ var last_index: int = -1
 # state_id written at container[last_index]
 var last_state_id: int = 0
 
-# SyncBase instance this property belongs to
-var sync_base: SyncBase
-
 # Options as passed to the constructor
 var opts: Dictionary
 

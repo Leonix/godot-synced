@@ -31,43 +31,74 @@ var state_id = 1 setget set_state_id, get_state_id
 var state_id_frac setget , get_state_id_frac
 
 # Shenanigans needed to calculate state_id_frac
-var _prev_process_delta = 0.0
-var _time_since_last_physics_process = 0.0
+var state_id_frac_fix = 0.0
+var first_process_since_physics_process = true
 
-func _process(delta):
-	# _process() on autoloaded nodes gets called before rest of the scene tree.
-	# Idea is: first _process() after _physics_process(delta) always has integer state_id.
-	_time_since_last_physics_process += _prev_process_delta
-	_prev_process_delta = delta
+# SyncInput needs RPC so it must be inside the tree
+var _input = preload('SyncInput.gd').new()
+
+func _ready():
+	self.add_child(_input)
+
+func _process(_delta):
+	
+	# Idea is: first call to _process() after _physics_process(delta) 
+	# should see integer state_id_frac. But we don't want to interfere
+	# too much with regularity of state_id_frac. 0.04 seems to work fine.
+	if first_process_since_physics_process:
+		state_id_frac_fix = move_toward(state_id_frac_fix, Engine.get_physics_interpolation_fraction(), 0.04)
+		first_process_since_physics_process = false
 
 func _physics_process(_delta):
-	_time_since_last_physics_process = 0.0
-	_prev_process_delta = 0.0
+	# Server: send previous World State to clients
+	# !!!
+	
+	# Increment global state time
+	first_process_since_physics_process = true
 	input_id += 1
 	state_id += 1
+	
+	# Server: update Client-owned properties of all SyncBase objects, 
+	# taking them from new input_id
+	# !!!
+	
+	# Build new Input frame
+	# !!!
+	
+	# Client: send input frames to server if time has come
+	# !!!
 
-# Game code call this on server for each client connected, or on client when connected to server
+# Game code calls this
+# - on server for each client connected, 
+# - on client when connected to server
 func client_connected():
 	pass # !!! todo
 
-func set_input_id(_value):
-	pass # read-only
+# Game code calls this 
+# - on server when existing client disconnects, 
+# - on client when disconnected from server
+func client_disconnected():
+	pass # !!! todo
 
-func get_input_id():
-	return input_id
-
-func set_state_id(_value):
-	pass # read-only
-
-func get_state_id():
-	return input_id
-
-func get_state_id_frac():
-	var result = _time_since_last_physics_process / get_physics_process_delta_time()
-	if result >= 1.0:
-		result = 0.99
-	return result + state_id
+# Input facade to read player's input through
+func get_input(peer=null):
+	pass # !!! todo
 
 # Instantiated instances of SyncBase report here upon creation
 func SyncBase_created(sb, spawner=null):
 	pass # !!!
+
+# Getters and setters
+func get_state_id_frac():
+	var result = Engine.get_physics_interpolation_fraction() - state_id_frac_fix
+	result = clamp(result, 0.0, 0.99)
+	return result + state_id
+
+func set_input_id(_value):
+	pass # read-only
+func get_input_id():
+	return input_id
+func set_state_id(_value):
+	pass # read-only
+func get_state_id():
+	return input_id
