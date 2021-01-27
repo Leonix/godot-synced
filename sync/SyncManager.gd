@@ -82,13 +82,15 @@ var _mtime_last_input_batch_sent = 0.0
 
 var SyncPeer = preload("res://sync/SyncPeer.tscn")
 
+# Input sendtable maps numbers (int) to InputMap actions (String) to use
+# for communication between client and server. Sendtable on client 
+# must exactly match sendtable on server.
+onready var input_sendtable = parse_input_map(InputMap)
+
 func _ready():
-	var local_peer = SyncPeer.instance()
-	local_peer.name = '0'
-	self.add_child(local_peer)
+	get_local_peer()
 
 func _process(_delta):
-	
 	if first_process_since_physics_process and state_id_frac_to_integer_reduction > 0:
 		state_id_frac_fix = move_toward(state_id_frac_fix, Engine.get_physics_interpolation_fraction(), state_id_frac_to_integer_reduction)
 		first_process_since_physics_process = false
@@ -143,26 +145,51 @@ func client_disconnected(peer_id=null):
 		if peer:
 			peer.queue_free()
 
-# Update storage according to given network_peer_id list.
-# Remove all peers that are not in the list and add peers that are in the list.
-func update_peers(peer_ids:Array):
-	var exists = {}
-#!!!for peer_id in peer_ids:
-#		exists[peer_id] = true
-#		if not (peer_id in storage):
-#			storage[peer_id] = SyncProperty.new({
-#				max_extrapolation = 0,
-#				missing_state_interpolation = SyncProperty.NO_INTERPOLATION,
-#				interpolation = SyncProperty.NO_INTERPOLATION,
-#				sync_strategy = SyncProperty.DO_NOT_SYNC
-#			})
-#			storage[peer_id].resize(get_parent().input_frames_history_size)
+# Helper to initialize sendtable based on InputMap
+func parse_input_map(input_map):
+	var send_as_bool = []
+	var send_as_float = []
 
-func sample_input():
-	pass # !!!!
+	for action in input_map.get_actions():
+		# ignore ip actions as client-only
+		if action.substr(0, 3) == 'ui_':
+			continue
+		var added = false
+		# To determine type of each action (send as float or as bool)
+		# we look for  among event types
+		for event in input_map.get_action_list(action):
+			if event is InputEventJoypadMotion:
+				send_as_float.append(action)
+				added = true
+				break
+		if not added:
+			send_as_bool.append(action)
+
+	send_as_float.sort()
+	send_as_bool.sort()
 	
+	return {
+		"float": send_as_float,
+		"bool": send_as_bool,
+	}
+	
+func sample_input():
+	var result =  {}
+	for type in input_sendtable:
+		for action in input_sendtable[type]:
+			match type:
+				'bool':
+					result[action] = Input.is_action_pressed(action)
+				'float':
+					result[action] = Input.get_action_strength(action)
+				_:
+					assert(false, "Unknown input action class '%s'" % type)
+	get_local_peer().storage.write(input_id, result)
+
 func send_input_batch():
-	pass # !!!!
+	var local_peer = get_local_peer()
+	if local_peer.storage.ready_to_read():
+		print(local_peer.storage.container) # !!!
 
 # Returns an object to read player's input through,
 # like a (limited) drop-in replacement of Godot's Input class.
@@ -171,11 +198,29 @@ func get_input_facade(peer_unique_id:int = 0):
 	if peer_unique_id > 0 and get_tree().network_peer and peer_unique_id == get_tree().multiplayer.get_network_unique_id():
 		peer_unique_id = 0
 	var peer = get_node("%s/SyncInputFacade" % peer_unique_id)
-	return peer if peer else FakeInputFacade.new()
+	return peer if peer else SyncInputFacade.FakeInputFacade.new()
 
 # Instantiated instances of SyncBase report here upon creation
-func SyncBase_created(sb, spawner=null):
+func SyncBase_created(_sb, _spawner=null):
 	pass # !!!
+
+# We use a special peer_id=0 to designate local peer.
+# This saves hustle in case get_tree().multiplayer.get_network_unique_id()
+# changes when peer connects and disconnects.
+# Local peer exists, InputFacade is safe to use even when multiplayer is disabled.
+func get_local_peer():
+	var local_peer
+	
+	# This check allows to avoid "node nont found" warning when called from _ready
+	if get_child_count() > 0:
+		local_peer = get_node("0")
+	
+	if not local_peer:
+		local_peer = SyncPeer.instance()
+		local_peer.name = '0'
+		self.add_child(local_peer)
+
+	return local_peer
 
 # Getters and setters
 func get_state_id_frac():
@@ -191,19 +236,3 @@ func set_state_id(_value):
 	pass # read-only
 func get_state_id():
 	return input_id
-
-# Fake SyncInputFacade to return when asked for unknown peer_unique_id
-class FakeInputFacade:
-	signal _input
-	func is_action_pressed(action: String)->bool:
-		return false
-	func is_action_just_pressed(action: String)->bool:
-		return false
-	func is_action_just_released(action: String)->bool:
-		return false
-	func get_action_strength(action: String)->float:
-		return 0.0
-	func action_press(action: String)->void:
-		pass
-	func action_release(action: String)->void:
-		pass

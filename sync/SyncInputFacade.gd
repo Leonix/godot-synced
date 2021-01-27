@@ -1,4 +1,5 @@
 extends Node
+class_name SyncInputFacade
 
 # Pretends to be like Godot's Input class, serving as a (limited) drop-in replacement.
 # When attached to local SyncPeer, uses last locally sampled input frame.
@@ -46,8 +47,26 @@ func _get_value(action, input_id=-1):
 		return null
 	return frame[action]
 	
-func action_press(action: String)->void:
+func action_press(_action: String)->void:
 	assert(false, 'SyncInputFacade->action_press() is not implemented')
 	
-func action_release(action: String)->void:
+func action_release(_action: String)->void:
 	assert(false, 'SyncInputFacade->action_release() is not implemented')
+
+# Fake SyncInputFacade to return when asked for unknown peer_unique_id
+class FakeInputFacade:
+	signal _input
+	func is_action_pressed(_action: String)->bool:
+		return false
+	func is_action_just_pressed(_action: String)->bool:
+		return false
+	func is_action_just_released(_action: String)->bool:
+		return false
+	func get_action_strength(_action: String)->float:
+		return 0.0
+	func action_press(_action: String)->void:
+		pass
+	func action_release(_action: String)->void:
+		pass
+	func __z():
+		emit_signal("_input")

@@ -2,7 +2,7 @@ extends Node
 
 # Script for SyncPeer.tscn scene.
 # Scene holds data structures for one network peer (including local).
-# Instanced for each network peer, including local.
+# Instanced as children of SyncManager for each network peer, including local.
 # SyncPeer with Node.name=='0' always exists on both client and sercer,
 # even when no network is initialized, and maps to local peer.
 # Remote SyncPeers only exist on server and have Node.name equal to their network_peer_id.
@@ -21,8 +21,6 @@ onready var facade = $SyncInputFacade
 var last_input_id = 0
 
 func _init():
-	# We use a special peer_id=0 to designate local peer.
-	# This saves hustle in case get_tree().multiplayer.get_network_unique_id() changes.
 	storage = SyncProperty.new({
 		max_extrapolation = 0,
 		missing_state_interpolation = SyncProperty.NO_INTERPOLATION,
