@@ -7,24 +7,23 @@ const SCORE_TO_WIN = 10
 var score_left = 0
 var score_right = 0
 
-onready var player2 = $Player2
 onready var score_left_node = $ScoreLeft
 onready var score_right_node = $ScoreRight
 onready var winner_left = $WinnerLeft
 onready var winner_right = $WinnerRight
 
 func _ready():
-	# By default, all nodes in server inherit from master,
-	# while all nodes in clients inherit from puppet.
-	# set_network_master is tree-recursive by default.
+	# We're in an authoritative multiplayer game now, yay!
+	# Keep Server as the master of all nodes.
+	# Instead, tell paddles to listen to input from proper source.
 	if get_tree().is_network_server():
 		# For the server, give control of player 2 to the other peer.
-		player2.set_network_master(get_tree().get_network_connected_peers()[0])
+		$Player2.belongs_to_peer_id = get_tree().get_network_connected_peers()[0]
+		print('SERVER: player2 belongs to another player %s' % get_tree().get_network_connected_peers()[0])
 	else:
-		# For the client, give control of player 2 to itself.
-		player2.set_network_master(get_tree().get_network_unique_id())
-
-	print("Unique id: ", get_tree().get_network_unique_id())
+		# For the client, leave control of player 2 to itself, but change player1
+		$Player1.belongs_to_peer_id = get_tree().get_network_connected_peers()[0]
+		print('CLIENT: player2 belongs to another player %s' % get_tree().get_network_connected_peers()[0])
 
 
 sync func update_score(add_to_left):

@@ -192,11 +192,16 @@ func send_input_batch():
 	
 	var packed_batch = pack_input_batch(input_sendtable, frames)
 	#print('sending input batch first_input_id=%s ' % first_input_id, frames)
-	rpc('receive_input_batch', first_input_id, PoolIntArray(packed_batch[0]), PoolStringArray(packed_batch[1]), packed_batch[2])
+	rpc_unreliable('receive_input_batch', first_input_id, PoolIntArray(packed_batch[0]), PoolStringArray(packed_batch[1]), packed_batch[2])
 
 master func receive_input_batch(first_input_id: int, sendtable_ids: Array, node_paths: Array, values: Array):
+	var peer = get_sender_peer()
+	if peer == null:
+		return
 	var frames = parse_input_batch(input_sendtable, sendtable_ids, node_paths, values)
-	# !!!
+	for i in range(frames.size()):
+		peer.storage.write(first_input_id + i, frames[i])
+	# !!! TODO: merge frames if too many comes from the client
 	#print('received input batch first_input_id=%s ' % first_input_id, frames)
 
 static func pack_input_batch(sendtable, frames):
@@ -362,6 +367,14 @@ func get_local_peer():
 		self.add_child(local_peer)
 
 	return local_peer
+
+# Returns a SyncPeer child of SyncManager that sent an RPC that is currently
+# being processed, or null if no RPC in progress or peer not found for any reason.
+func get_sender_peer():
+	var peer_id = multiplayer.get_rpc_sender_id()
+	if peer_id <= 0:
+		return null
+	return get_node(str(peer_id))
 
 # Signals from scene tree networking
 func _player_connected(peer_id=null):

@@ -47,6 +47,12 @@ func _get_value(action, input_id=-1):
 		return null
 	return frame[action]
 	
+func get_peer_id():
+	var peer = get_parent()
+	if not peer:
+		return null
+	return int(peer.name)
+	
 func action_press(_action: String)->void:
 	assert(false, 'SyncInputFacade->action_press() is not implemented')
 	
@@ -56,6 +62,8 @@ func action_release(_action: String)->void:
 # Fake SyncInputFacade to return when asked for unknown peer_unique_id
 class FakeInputFacade:
 	signal _input
+	func get_peer_id():
+		return null
 	func is_action_pressed(_action: String)->bool:
 		return false
 	func is_action_just_pressed(_action: String)->bool:
