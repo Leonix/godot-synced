@@ -18,12 +18,13 @@ onready var _screen_size_y = get_viewport_rect().size.y
 
 func _process(delta):
 	
-	if not sync_input or sync_input.get_peer_id() != belongs_to_peer_id:
+	if not sync_input or (sync_input.get_peer_id() and sync_input.get_peer_id() != belongs_to_peer_id):
 		sync_input = SyncManager.get_input_facade(belongs_to_peer_id)
 
 	_motion = sync_input.get_action_strength("move_down") - sync_input.get_action_strength("move_up")
 	_motion *= MOTION_SPEED
 
+	# Hide label instantly for another person's paddle, or after a move for your paddle.
 	if not _you_hidden:
 		if _motion != 0 or belongs_to_peer_id != 0:
 			_hide_you_label()
@@ -42,7 +43,6 @@ func _process(delta):
 puppet func set_pos_and_motion(pos, motion):
 	position = pos
 	_motion = motion
-
 
 func _hide_you_label():
 	_you_hidden = true

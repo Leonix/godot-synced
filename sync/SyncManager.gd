@@ -41,17 +41,15 @@ var input_frames_min_batch = 3
 
 # Server: max number of frames to pool for later processing.
 # input_frames_history_size * input_sendrate should exceed Engine.iterations_per_second
-# input_frames_history_size must exceed input_frames_min_batch
+# input_frames_history_size must exceed input_frames_min_batch.
+# Should not be too large a value or client may experience input delay 
+# in case of clock desync.
 var input_frames_history_size = 5
 
 # Server: when no input frames are ready from peer at the moment of consumption,
 # server is allowed to copy last valid frame this many times.
 # Reasonable value allows to tolerate 1-2 input packets go missing.
 var input_prediction_max_frames = 4
-
-# Last input frame that has been captured and either sent to server (if on client)
-# or processed locally (if on server)
-var input_id = 1 setget set_input_id, get_input_id
 
 # Last World State id that has been captured.
 var state_id = 1 setget set_state_id, get_state_id
@@ -116,7 +114,6 @@ func _physics_process(_delta):
 	
 	# Increment global state time
 	first_process_since_physics_process = true
-	input_id += 1
 	state_id += 1
 	
 	# Build new Input frame
@@ -173,7 +170,8 @@ func sample_input():
 					result[action] = Input.get_action_strength(action)
 				_:
 					assert(false, "Unknown input action class '%s'" % type)
-	get_local_peer().storage.write(input_id, result)
+	var peer = get_local_peer()
+	peer.storage.write(peer.input_id, result)
 
 func send_input_batch():
 	var storage = get_local_peer().storage
@@ -201,8 +199,6 @@ master func receive_input_batch(first_input_id: int, sendtable_ids: Array, node_
 	var frames = parse_input_batch(input_sendtable, sendtable_ids, node_paths, values)
 	for i in range(frames.size()):
 		peer.storage.write(first_input_id + i, frames[i])
-	# !!! TODO: merge frames if too many comes from the client
-	#print('received input batch first_input_id=%s ' % first_input_id, frames)
 
 static func pack_input_batch(sendtable, frames):
 	#
@@ -401,11 +397,7 @@ func get_state_id_frac():
 	result = clamp(result, 0.0, 0.99)
 	return result + state_id
 
-func set_input_id(_value):
-	pass # read-only
-func get_input_id():
-	return input_id
 func set_state_id(_value):
 	pass # read-only
 func get_state_id():
-	return input_id
+	return state_id
