@@ -22,10 +22,13 @@ func test_no_interpolation():
 	assert_eq(SyncProperty.NO_INTERPOLATION, prop.missing_state_interpolation)
 	prop.resize(10)
 	prop.write(12, 100.0)
+	assert_eq(100.0, prop.last())
 	assert_eq(10, prop.container.size())
 	assert_eq(12, prop.last_state_id)
 	assert_eq(10, prop.container.count(100.0))
 	prop.write(15, 200.0)
+	assert_eq(100.0, prop.last(1))
+	assert_eq(200.0, prop.last(0))
 	assert_eq(15, prop.last_state_id)
 	assert_eq(1, prop.container.count(200.0))
 	assert_eq(200.0, prop.container[prop.last_index])
@@ -63,8 +66,13 @@ func test_linear_interpolation():
 	assert_eq(113.5, prop.read(13.5)) # interpolation between different values, float
 	assert_eq(113.0, prop.read(13)) # oldest value stored
 	assert_eq(113.0, prop.read(12)) # value older than stored
+	assert_eq(118.0, prop.last())
+	assert_eq(117.0, prop.last(1))
 	
 	prop.write(19, 118.0)
+	assert_eq(118.0, prop.last())
+	assert_eq(118.0, prop.last(1))
+	assert_eq(117.0, prop.last(2))
 	assert_eq(19, prop.last_state_id)
 	assert_eq(118.0, prop.read(18.5)) # interpolation between equal values
 	#gut.p('%s; last_state_id=%s, last_index=%s' % [prop.container, prop.last_state_id, prop.last_index])

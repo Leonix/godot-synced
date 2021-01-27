@@ -87,6 +87,11 @@ func _init(options: Dictionary):
 func _get(state_id_str):
 	return self.read(float(state_id_str))
 
+# Return value from last state_id. Optionally allows to skip several last state ids,
+# e.g. last(1) will return second last.
+func last(skip=0):
+	return self.read(last_state_id - skip)
+
 func _set(state_id_str, value):
 	return self.write(int(state_id_str), value)
 
