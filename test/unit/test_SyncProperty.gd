@@ -45,10 +45,16 @@ func test_linear_interpolation():
 		interpolation = SyncProperty.LINEAR_INTERPOLATION,
 		missing_state_interpolation = SyncProperty.LINEAR_INTERPOLATION
 	})
+	assert_false(prop.ready_to_read())
+	assert_false(prop.ready_to_write())
 	assert_eq(SyncProperty.LINEAR_INTERPOLATION, prop.interpolation)
 	assert_eq(SyncProperty.LINEAR_INTERPOLATION, prop.missing_state_interpolation)
 	prop.resize(6)
+	assert_false(prop.ready_to_read())
+	assert_true(prop.ready_to_write())
 	prop.write(11, 111.0)
+	assert_true(prop.ready_to_read())
+	assert_true(prop.ready_to_write())
 	assert_eq(11, prop.last_state_id)
 	prop.write(12, 112.0)
 	assert_eq(12, prop.last_state_id)

@@ -98,7 +98,7 @@ func _set(state_id_str, value):
 # Returns property value at given state_id, doing all the interpolation 
 # and extrapolation magic as set up for this property.
 func read(state_id: float):
-	assert(last_index >= 0, "Attempt to read from SyncProperty before any write has happened.")
+	assert(ready_to_read(), "Attempt to read from SyncProperty before any write has happened.")
 
 	if last_state_id < state_id:
 		return _extrapolate(state_id)
@@ -127,7 +127,7 @@ func read(state_id: float):
 # Overwrites historic value or adds a new state_id.
 # Write is ignored if state_id is too old.
 func write(state_id: int, value):
-	assert(container.size() > 0, "Attempt to write to SyncProperty before container size is set.")
+	assert(ready_to_write(), "Attempt to write to SyncProperty before container size is set.")
 
 	# Initial write must fill in the whole buffer
 	if last_index < 0:
@@ -228,3 +228,9 @@ static func lerpnorm(left: float, right: float, middle: float)->float:
 func resize(new_size):
 	assert(last_index < 0, "Attempt to resize a non-empty SyncProperty")
 	container.resize(new_size)
+
+func ready_to_read():
+	return last_index >= 0
+
+func ready_to_write():
+	return container.size() > 0

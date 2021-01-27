@@ -3,6 +3,15 @@ extends Node
 #
 # Sync lib requires this class to be autoloaded as SyncManager singleton.
 #
+# Does the RPC to send Input frames (keyboard and mouse sampling status)
+# from Client to Server. Stores data in child nodes, see SyncPeer.tscn scene.
+# Local player has a special SyncPeer id=0 attached at all times, including
+# even when no networking is enabled.
+#
+
+#
+# Configuration constants
+#
 
 # How long (in state_ids) should history be for each interpolated property on a client.
 # Client stores history of all interpolated properties in order to render game world
@@ -35,6 +44,11 @@ var input_frames_min_batch = 3
 # input_frames_history_size must exceed input_frames_min_batch
 var input_frames_history_size = 5
 
+# Server: when no input frames are ready from peer at the moment of consumption,
+# server is allowed to copy last valid frame this many times.
+# Reasonable value allows to tolerate 1-2 input packets go missing.
+var input_prediction_max_frames = 4
+
 # Last input frame that has been captured and either sent to server (if on client)
 # or processed locally (if on server)
 var input_id = 1 setget set_input_id, get_input_id
@@ -45,26 +59,38 @@ var state_id = 1 setget set_state_id, get_state_id
 # Last World State id that has been captured.
 var state_id_frac setget , get_state_id_frac
 
+# We want first call to _process() after _physics_process() 
+# to see integer state_id_frac. But we don't want to interfere
+# too much with regularity of state_id_frac. The greater this setting is,
+# the stronger we try to make first state_id_frac into integer,
+# at the cost of possible large jumps in state_id_frac value
+# visible inside _process().
+# 1 will force state_id_frac to be integer first time after _physics_process().
+# 0 will disable trying to change state_id_frac.
+var state_id_frac_to_integer_reduction = 0.04
+
+#
+# Private vars zone
+#
+
 # Shenanigans needed to calculate state_id_frac
 var state_id_frac_fix = 0.0
 var first_process_since_physics_process = true
 
-# SyncInput needs RPC so it must be inside the tree
-var _input = SyncInput.new()
-
+# Used to control rate of sending input from client to server
 var _mtime_last_input_batch_sent = 0.0
 
+var SyncPeer = preload("res://sync/SyncPeer.tscn")
+
 func _ready():
-	self.add_child(_input)
+	var local_peer = SyncPeer.instance()
+	local_peer.name = '0'
+	self.add_child(local_peer)
 
 func _process(_delta):
 	
-	# Idea is: first call to _process() after _physics_process(delta) 
-	# should see integer state_id_frac. But we don't want to interfere
-	# too much with regularity of state_id_frac. 0.04 seems to work fine.
-	# !!! TODO make it an editor option...  make many editor options X_x
-	if first_process_since_physics_process:
-		state_id_frac_fix = move_toward(state_id_frac_fix, Engine.get_physics_interpolation_fraction(), 0.04)
+	if first_process_since_physics_process and state_id_frac_to_integer_reduction > 0:
+		state_id_frac_fix = move_toward(state_id_frac_fix, Engine.get_physics_interpolation_fraction(), state_id_frac_to_integer_reduction)
 		first_process_since_physics_process = false
 
 func is_server():
@@ -85,7 +111,7 @@ func _physics_process(_delta):
 	state_id += 1
 	
 	# Build new Input frame
-	_input.sample(state_id, input_id)
+	sample_input()
 
 	# Server: update Client-owned properties of all SyncBase objects, 
 	# taking them from new input frame from each client
@@ -97,26 +123,55 @@ func _physics_process(_delta):
 		var time = OS.get_system_time_msecs()
 		if (time - _mtime_last_input_batch_sent) * input_sendrate >= 1.0:
 			_mtime_last_input_batch_sent = time
-			_input.send_batch()
+			send_input_batch()
 
 # Game code calls this
-# - on server for each client connected, 
-# - on client when connected to server
-func client_connected():
-	if is_server():
-		_input.update_peers(get_tree().multiplayer.get_network_connected_peers())
+# - on server for each client connected, providing peer_id;
+# - on client when connected to server, with no peer_id
+func client_connected(peer_id=null):
+	if is_server() and peer_id > 0:
+		var peer = SyncPeer.instance()
+		peer.name = str(peer_id)
+		self.add_child(peer)
 
 # Game code calls this 
-# - on server when existing client disconnects, 
-# - on client when disconnected from server
-func client_disconnected():
-	if is_server():
-		_input.update_peers(get_tree().multiplayer.get_network_connected_peers())
+# - on server when existing client disconnects, providing peer_id;
+# - on client when disconnected from server, with no peer_id
+func client_disconnected(peer_id=null):
+	if is_server() and peer_id > 0:
+		var peer = get_node(str(peer_id))
+		if peer:
+			peer.queue_free()
 
-# Input facade to read player's input through. 
-# 0 means local player, as well as get_tree().multiplayer.get_network_unique_id()
-func get_input(peer_unique_id=0):
-	return _input.get_facade(peer_unique_id)
+# Update storage according to given network_peer_id list.
+# Remove all peers that are not in the list and add peers that are in the list.
+func update_peers(peer_ids:Array):
+	var exists = {}
+#!!!for peer_id in peer_ids:
+#		exists[peer_id] = true
+#		if not (peer_id in storage):
+#			storage[peer_id] = SyncProperty.new({
+#				max_extrapolation = 0,
+#				missing_state_interpolation = SyncProperty.NO_INTERPOLATION,
+#				interpolation = SyncProperty.NO_INTERPOLATION,
+#				sync_strategy = SyncProperty.DO_NOT_SYNC
+#			})
+#			storage[peer_id].resize(get_parent().input_frames_history_size)
+
+func sample_input():
+	pass # !!!!
+	
+func send_input_batch():
+	pass # !!!!
+
+# Returns an object to read player's input through,
+# like a (limited) drop-in replacement of Godot's Input class.
+# 0 means local player, same as get_tree().multiplayer.get_network_unique_id()
+func get_input_facade(peer_unique_id:int = 0):
+	if peer_unique_id > 0 and get_tree().network_peer and peer_unique_id == get_tree().multiplayer.get_network_unique_id():
+		peer_unique_id = 0
+	var peer = get_node("%s/SyncInputFacade" % peer_unique_id)
+	return peer if peer else FakeInputFacade.new()
 
 # Instantiated instances of SyncBase report here upon creation
 func SyncBase_created(sb, spawner=null):
@@ -136,3 +191,19 @@ func set_state_id(_value):
 	pass # read-only
 func get_state_id():
 	return input_id
+
+# Fake SyncInputFacade to return when asked for unknown peer_unique_id
+class FakeInputFacade:
+	signal _input
+	func is_action_pressed(action: String)->bool:
+		return false
+	func is_action_just_pressed(action: String)->bool:
+		return false
+	func is_action_just_released(action: String)->bool:
+		return false
+	func get_action_strength(action: String)->float:
+		return 0.0
+	func action_press(action: String)->void:
+		pass
+	func action_release(action: String)->void:
+		pass
