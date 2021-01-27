@@ -16,14 +16,22 @@ func _ready():
 	# We're in an authoritative multiplayer game now, yay!
 	# Keep Server as the master of all nodes.
 	# Instead, tell paddles to listen to input from proper source.
-	if get_tree().is_network_server():
-		# For the server, give control of player 2 to the other peer.
-		$Player2.belongs_to_peer_id = get_tree().get_network_connected_peers()[0]
+	if SyncManager.is_server():
+		# For the server, give control of player2 to the other peer, player1 to self.
+		$Player1/Sync.belongs_to_peer_id = 0
+		$Player2/Sync.belongs_to_peer_id = get_tree().get_network_connected_peers()[0]
 		print('SERVER: player2 belongs to another player %s' % get_tree().get_network_connected_peers()[0])
+	elif SyncManager.is_client():
+		# For the client, change control of player2 to self, leave player1 belonging to no one
+		$Player2/Sync.belongs_to_peer_id = 0
+		print('CLIENT: player1 belongs to another player %s' % get_tree().get_network_connected_peers()[0])
 	else:
-		# For the client, leave control of player 2 to itself, but change player1
-		$Player1.belongs_to_peer_id = get_tree().get_network_connected_peers()[0]
-		print('CLIENT: player2 belongs to another player %s' % get_tree().get_network_connected_peers()[0])
+		# Clicked "Play Scene" in Editor?..
+		# Single player, no networkging enabled for some reason.
+		# Let's control both players for the fun of it.
+		$Player1/Sync.belongs_to_peer_id = 0
+		$Player2/Sync.belongs_to_peer_id = 0
+		print('OFFLINE: both players are controlled by local input')
 
 
 sync func update_score(add_to_left):

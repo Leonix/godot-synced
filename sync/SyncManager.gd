@@ -72,8 +72,8 @@ var state_id_frac_to_integer_reduction = 0.04
 #
 
 # Shenanigans needed to calculate state_id_frac
-var state_id_frac_fix = 0.0
-var first_process_since_physics_process = true
+var _state_id_frac_fix = 0.0
+var _first_process_since_physics_process = true
 
 # Used to control rate of sending input from client to server
 var _mtime_last_input_batch_sent = 0.0
@@ -96,25 +96,20 @@ func _ready():
 	get_tree().connect("server_disconnected", self, "_i_disconnected")
 
 func _process(_delta):
-	if first_process_since_physics_process and state_id_frac_to_integer_reduction > 0:
-		state_id_frac_fix = move_toward(state_id_frac_fix, Engine.get_physics_interpolation_fraction(), state_id_frac_to_integer_reduction)
-		first_process_since_physics_process = false
-
-func is_server():
-	return get_tree().network_peer and get_tree().is_network_server()
-
-func is_client():
-	return get_tree().network_peer and _is_connected_to_server and not get_tree().is_network_server()
+	if _first_process_since_physics_process:
+		if state_id_frac_to_integer_reduction > 0:
+			_state_id_frac_fix = move_toward(_state_id_frac_fix, Engine.get_physics_interpolation_fraction(), state_id_frac_to_integer_reduction)
+			_first_process_since_physics_process = false
 
 func _physics_process(_delta):
 
 	# Server: send previous World State to clients
 	if is_server():
 		pass # !!!
-	
+
 	# Increment global state time
-	first_process_since_physics_process = true
 	state_id += 1
+	_first_process_since_physics_process = true
 	
 	# Build new Input frame
 	sample_input()
@@ -336,11 +331,16 @@ static func parse_input_batch(sendtable, sendtable_ids: Array, node_paths: Array
 # Returns an object to read player's input through,
 # like a (limited) drop-in replacement of Godot's Input class.
 # 0 means local player, same as get_tree().multiplayer.get_network_unique_id()
-func get_input_facade(peer_unique_id:int = 0):
+func get_input_facade(peer_unique_id):
+	if peer_unique_id == null:
+		return SyncInputFacade.FakeInputFacade.new()
 	if peer_unique_id > 0 and get_tree().network_peer and peer_unique_id == get_tree().multiplayer.get_network_unique_id():
 		peer_unique_id = 0
-	var peer = get_node("%s/SyncInputFacade" % peer_unique_id)
-	return peer if peer else SyncInputFacade.FakeInputFacade.new()
+	# find_node() avoids warnings on client from get_node() that node does not exist
+	var peer = find_node(str(peer_unique_id), false, false)
+	if not peer:
+		return SyncInputFacade.FakeInputFacade.new()
+	return get_node("%s/SyncInputFacade" % peer_unique_id)
 
 # Instances of SyncBase report here upon creation
 func SyncBase_created(_sb, _spawner=null):
@@ -363,6 +363,14 @@ func get_local_peer():
 		self.add_child(local_peer)
 
 	return local_peer
+
+# True if networking enabled and we're the Server
+func is_server():
+	return get_tree().network_peer and get_tree().is_network_server()
+
+# True if networking enabled and we're a Client
+func is_client():
+	return get_tree().network_peer and _is_connected_to_server and not get_tree().is_network_server()
 
 # Returns a SyncPeer child of SyncManager that sent an RPC that is currently
 # being processed, or null if no RPC in progress or peer not found for any reason.
@@ -393,7 +401,9 @@ func _i_disconnected():
 
 # Getters and setters
 func get_state_id_frac():
-	var result = Engine.get_physics_interpolation_fraction() - state_id_frac_fix
+	if Engine.is_in_physics_frame():
+		return float(state_id)
+	var result = Engine.get_physics_interpolation_fraction() - _state_id_frac_fix
 	result = clamp(result, 0.0, 0.99)
 	return result + state_id
 
