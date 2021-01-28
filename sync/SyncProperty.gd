@@ -236,6 +236,21 @@ func resize(new_size):
 	assert(last_index < 0, "Attempt to resize a non-empty SyncProperty")
 	container.resize(new_size)
 
+# Return true if property changed between these two states
+# (or since given state if only one is provided)
+func changed(old_state_id:int, new_state_id:int=-1):
+	if old_state_id == 0:
+		return true
+	if old_state_id < 0:
+		old_state_id = last_state_id + 1 + old_state_id
+	if new_state_id < 0:
+		new_state_id = last_state_id + 1 + new_state_id
+	if new_state_id <= old_state_id:
+		return false
+	# !!! this is wrong because value may have changed back and forth
+	# Probably have to store and maintain last modified state_id
+	return container[_get_index(old_state_id)] == container[_get_index(new_state_id)]
+
 func ready_to_read():
 	return last_index >= 0
 

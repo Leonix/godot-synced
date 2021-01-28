@@ -23,6 +23,9 @@ extends Node
 # Only change before scene is loaded.
 var client_interpolated_property_history_size = 5
 
+# How many times per second to send property values from Server to Client.
+var server_sendrate = 30
+
 # How long (in state_ids) should history be for each property on a server.
 # This determines max lag-compensation span and max time depth.
 # Changing this will only affect newly created SyncBases. 
@@ -327,7 +330,6 @@ static func parse_input_batch(sendtable, sendtable_ids: Array, node_paths: Array
 		assert(node_paths.size() <= 0, "Sending Client-Owned Properties is not implemented yet") # !!!
 	return result
 	
-
 # Returns an object to read player's input through,
 # like a (limited) drop-in replacement of Godot's Input class.
 # 0 means local player, same as get_tree().multiplayer.get_network_unique_id()
