@@ -19,7 +19,7 @@ _global_script_classes=[ {
 "language": "GDScript",
 "path": "res://sync/SyncInputFacade.gd"
 }, {
-"base": "Reference",
+"base": "Node",
 "class": "SyncProperty",
 "language": "GDScript",
 "path": "res://sync/SyncProperty.gd"

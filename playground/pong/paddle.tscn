@@ -1,8 +1,9 @@
-[gd_scene load_steps=5 format=2]
+[gd_scene load_steps=6 format=2]
 
 [ext_resource path="res://playground/pong/logic/paddle.gd" type="Script" id=1]
 [ext_resource path="res://playground/pong/paddle.png" type="Texture" id=2]
-[ext_resource path="res://playground/pong/logic/SyncPaddle.gd" type="Script" id=3]
+[ext_resource path="res://sync/SyncProperty.gd" type="Script" id=3]
+[ext_resource path="res://sync/SyncBase.gd" type="Script" id=4]
 
 [sub_resource type="CapsuleShape2D" id=1]
 radius = 4.78568
@@ -27,6 +28,9 @@ size_flags_vertical = 0
 text = "You"
 align = 1
 
-[node name="Sync" type="Node" parent="."]
+[node name="synced" type="Node" parent="."]
+script = ExtResource( 4 )
+
+[node name="position" type="Node" parent="synced"]
 script = ExtResource( 3 )
 [connection signal="area_entered" from="." to="." method="_on_paddle_area_enter"]

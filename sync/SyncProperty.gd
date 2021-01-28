@@ -5,7 +5,7 @@
 # as well as extrapolate some time into the future.
 #
 
-extends Reference
+extends Node
 class_name SyncProperty
 
 # Possible property sync strategies (`options.sync_strategy`)
@@ -41,10 +41,10 @@ enum {
 }
 
 # See possible sync strategies in Enum above
-var sync_strategy = AUTO_SYNC
+export(int, 'DO_NOT_SYNC', 'RELIABLE_SYNC', 'UNRELIABLE_SYNC', 'AUTO_SYNC', 'CLIENT_OWNED') var sync_strategy = AUTO_SYNC
 
 # See AUTO_SYNC in enum above
-var strat_stale_delay = 9
+export var strat_stale_delay = 9
 
 # Possible interpolation strategies
 enum {
@@ -54,13 +54,13 @@ enum {
 	LINEAR_INTERPOLATION
 }
 # Interpolattion strategy to use in between two neighboring int state_ids
-var interpolation = NO_INTERPOLATION
+export(int, 'NO_INTERPOLATION', 'LINEAR_INTERPOLATION') var interpolation = NO_INTERPOLATION
 # Interpolattion strategy to calculate missing value for int state_id,
 # using two other int state_ids that are far apart.
-var missing_state_interpolation = NO_INTERPOLATION
+export(int, 'NO_INTERPOLATION', 'LINEAR_INTERPOLATION') var missing_state_interpolation = NO_INTERPOLATION
 # no more than this numebr of state_ids are allowed to extrapolate
 # when state_id requested from the future
-var max_extrapolation = 15
+export var max_extrapolation = 15
 
 # Array-like storage place for historic values.
 # This is used as a circular buffer. We keep track of last written index self.last_index,
@@ -75,17 +75,21 @@ var last_index: int = -1
 # state_id written at container[last_index]
 var last_state_id: int = 0
 
-# Options as passed to the constructor
-var opts: Dictionary
+# Options as passed to the constructor. 
+# Can be used to store additional meta-data.
+export var opts: Dictionary
 
-func _init(options: Dictionary):
+func _init(options: Dictionary = {}):
 	for k in options:
-		self.set(k, options[k])
+		if is_valid_option(k):
+			self.set(k, options[k])
 	self.opts = options.duplicate()
 	self.container = []
 
 func _get(state_id_str):
-	return self.read(float(state_id_str))
+	var state_id = float(state_id_str)
+	if state_id != 0:
+		return self.read(state_id)
 
 # Return value from last state_id. Optionally allows to skip several last state ids,
 # e.g. last(1) will return second last.
@@ -93,7 +97,8 @@ func last(skip=0):
 	return self.read(last_state_id - skip)
 
 func _set(state_id_str, value):
-	return self.write(int(state_id_str), value)
+	self.write(int(state_id_str), value)
+	return true
 
 # Returns property value at given state_id, doing all the interpolation 
 # and extrapolation magic as set up for this property.
@@ -234,3 +239,10 @@ func ready_to_read():
 
 func ready_to_write():
 	return container.size() > 0
+
+static func is_valid_option(name):
+	match name:
+		'sync_strategy', 'strat_stale_delay', 'interpolation', \
+		'missing_state_interpolation', 'max_extrapolation', 'container':
+			return true
+	return false

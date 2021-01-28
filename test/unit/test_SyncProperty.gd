@@ -10,6 +10,8 @@ func before_each():
 	pass
 
 func after_each():
+	if prop:
+		prop.free()
 	prop = null
 
 func after_all():

@@ -26,7 +26,8 @@ func before_each():
 	obj = SyncManagerResource.new()
 
 func after_each():
-	obj.free()
+	if obj:
+		obj.free()
 	obj = null
 	SyncManager.input_frames_min_batch = __input_frames_min_batch
 

@@ -366,11 +366,11 @@ func get_local_peer():
 
 # True if networking enabled and we're the Server
 func is_server():
-	return get_tree().network_peer and get_tree().is_network_server()
+	return get_tree() and get_tree().network_peer and get_tree().is_network_server()
 
 # True if networking enabled and we're a Client
 func is_client():
-	return get_tree().network_peer and _is_connected_to_server and not get_tree().is_network_server()
+	return get_tree() and get_tree().network_peer and _is_connected_to_server and not get_tree().is_network_server()
 
 # Returns a SyncPeer child of SyncManager that sent an RPC that is currently
 # being processed, or null if no RPC in progress or peer not found for any reason.
@@ -379,6 +379,13 @@ func get_sender_peer():
 	if peer_id <= 0:
 		return null
 	return get_node(str(peer_id))
+
+func init_sync_property(p):
+	if is_client():
+		p.resize(client_interpolated_property_history_size)
+	else:
+		p.resize(server_property_history_size)
+	return p
 
 # Signals from scene tree networking
 func _player_connected(peer_id=null):

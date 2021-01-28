@@ -8,7 +8,7 @@ var _motion = 0
 var _you_hidden = false
 
 onready var _screen_size_y = get_viewport_rect().size.y
-onready var synced = $Sync
+onready var synced = $synced
 
 func _process(_delta):
 	# Hide label instantly for another person's paddle, or after a move for your paddle.
