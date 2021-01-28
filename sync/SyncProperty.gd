@@ -97,8 +97,10 @@ func last(skip=0):
 	return self.read(last_state_id - skip)
 
 func _set(state_id_str, value):
-	self.write(int(state_id_str), value)
-	return true
+	var state_id = int(state_id_str)
+	if state_id != 0:
+		self.write(state_id, value)
+		return true
 
 # Returns property value at given state_id, doing all the interpolation 
 # and extrapolation magic as set up for this property.
