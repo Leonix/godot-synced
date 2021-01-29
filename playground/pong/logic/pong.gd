@@ -35,7 +35,11 @@ func _ready():
 		$Player2/synced.belongs_to_peer_id = 0
 		print('OFFLINE: both players are controlled by local input')
 
-sync func update_score(add_to_left):
+func _process(_delta):
+	score_left_node.set_text(str(synced.score_left))
+	score_right_node.set_text(str(synced.score_right))
+
+func update_score(add_to_left):
 	if add_to_left:
 		synced.score_left += 1
 		score_left_node.set_text(str(synced.score_left))

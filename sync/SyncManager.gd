@@ -95,7 +95,6 @@ func _ready():
 	get_local_peer()
 	get_tree().connect("network_peer_connected", self, "_player_connected")
 	get_tree().connect("network_peer_disconnected", self, "_player_disconnected")
-	get_tree().connect("connected_to_server", self, "_i_connected")
 	get_tree().connect("server_disconnected", self, "_i_disconnected")
 
 func _process(_delta):
@@ -395,15 +394,14 @@ func _player_connected(peer_id=null):
 		var peer = SyncPeer.instance()
 		peer.name = str(peer_id)
 		self.add_child(peer)
+	elif not is_server() and peer_id == 1:
+		_is_connected_to_server = true
 
 func _player_disconnected(peer_id=null):
 	if is_server() and peer_id > 0:
 		var peer = get_node(str(peer_id))
 		if peer:
 			peer.queue_free()
-
-func _i_connected():
-	_is_connected_to_server = true
 
 func _i_disconnected():
 	_is_connected_to_server = false
