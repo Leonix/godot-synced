@@ -17,6 +17,7 @@ class_name SyncBase
 #   !!! not implemented yet
 # - It keeps Client's copy of data updated via RPC.
 # - It stores a history of values for everything it syncs.
+# - It acts as a proxy for player input, see `get_input()` and `belongs_to_peer_id`
 #
 # SyncBase is designed to parent one or more SyncProperty child nodes.
 # Each SyncProperty child becomes a property (field) on this object accessible
@@ -121,6 +122,7 @@ func get_last_reliable_state_ids(peer_id=null)->Dictionary:
 # due to Time Depth calculations (!!! not implemented yet)
 # and hidden (masked) properties different for different players (!!! again)
 func send_all_data_frames():
+	
 	var can_batch = true
 
 	# Does this object has the same hidden (masked) status for all players?
@@ -136,26 +138,37 @@ func send_all_data_frames():
 
 		match prepare_data_frame(get_last_reliable_state_ids(null if can_batch else peer_id)):
 			[var sendtable, var reliable_frame, var unreliable_frame]:
-
+				
 				if unreliable_frame and unreliable_frame.size() > 0:
+					print('!!! sending unreliable frame %s (can_batch=%s) %s ' % [SyncManager.state_id, can_batch, unreliable_frame])
 					var data = pack_data_frame(sendtable, unreliable_frame)
+					var sendtable_ids = data[0]
+					if sendtable_ids != null:
+						sendtable_ids = PoolIntArray(data[0])
 					if can_batch:
-						rpc_unreliable('receive_data_frame', SyncManager.state_id, PoolIntArray(data[0]), data[1])
+						rpc_unreliable('receive_data_frame', SyncManager.state_id, sendtable_ids, data[1])
 					else:
-						rpc_unreliable_id(peer_id, 'receive_data_frame', SyncManager.state_id, PoolIntArray(data[0]), data[1])
+						rpc_unreliable_id(peer_id, 'receive_data_frame', SyncManager.state_id, sendtable_ids, data[1])
 
 				if reliable_frame and reliable_frame.size() > 0:
+					print('!!! sending reliable frame %s (can_batch=%s) %s ' % [SyncManager.state_id, can_batch, reliable_frame])
 					var data = pack_data_frame(sendtable, reliable_frame)
+					var sendtable_ids = data[0]
+					if sendtable_ids != null:
+						sendtable_ids = PoolIntArray(data[0])
 					if can_batch:
-						rpc('receive_data_frame', SyncManager.state_id, PoolIntArray(data[0]), data[1])
+						rpc('receive_data_frame', SyncManager.state_id, sendtable_ids, data[1])
 						for peer_id2 in multiplayer.get_network_connected_peers():
+							if not peer_id2 in _peer_prop_reliable_state_ids:
+								_peer_prop_reliable_state_ids[peer_id2] = {}
 							for prop in reliable_frame:
 								_peer_prop_reliable_state_ids[peer_id2][prop] = SyncManager.state_id
 					else:
-						rpc_id(peer_id, 'receive_data_frame', SyncManager.state_id, PoolIntArray(data[0]), data[1])
+						rpc_id(peer_id, 'receive_data_frame', SyncManager.state_id, sendtable_ids, data[1])
+						if not peer_id in _peer_prop_reliable_state_ids:
+							_peer_prop_reliable_state_ids[peer_id] = {}
 						for prop in reliable_frame:
 							_peer_prop_reliable_state_ids[peer_id][prop] = SyncManager.state_id
-
 		# When data for all peers match, we're done after the first loop iteration
 		if can_batch:
 			return
@@ -172,6 +185,13 @@ func prepare_data_frame(prop_reliable_state_ids:Dictionary):
 	var sendtable = sync_properties.keys()
 	for prop in sendtable:
 		var property = sync_properties[prop]
+		
+#		print('%s !!! rel_state_id=%s shouldsend=%s ready=%s' % [prop, \
+#			prop_reliable_state_ids.get(prop, 0), 
+#			property.shouldsend(prop_reliable_state_ids.get(prop, 0)),
+#			property.ready_to_read()
+#		])
+		
 		match property.shouldsend(prop_reliable_state_ids.get(prop, 0)):
 			[SyncProperty.CLIENT_OWNED, ..],\
 			[SyncProperty.DO_NOT_SYNC, ..]:
@@ -198,19 +218,68 @@ func prepare_data_frame(prop_reliable_state_ids:Dictionary):
 
 	return [sendtable, frame_reliable, frame_unreliable]
 
-# Array(int) of sendtable_ids contains indices in sendtable.
-# Array of values contains corresponsing values.
-# There may be more values than there are indices. Rest of values, 
-# however many there is, correspond to indices from the start of the sendtable.
+# Called via RPC, sending data from Server to all Clients.
 puppet func receive_data_frame(state_id, sendtable_ids, values):
-	[state_id, sendtable_ids, values] # !!!
+	var frame = parse_data_frame(sync_properties.keys(), sendtable_ids, values)
+	for prop in frame:
+		sync_properties[prop].write(state_id, frame[prop])
 
-static func pack_data_frame(sendtable, frame):
-	[sendtable, frame] # !!!
+# Tightly pack data frame before sending
+# `sendtable` is an Array of Property names (strings) used to encode values.
+# Sendtable is generated locally, required to be the same on both Client and Server.
+# Array(int) of `sendtable_ids` contains indices in sendtable.
+# Array of `values` contains corresponsing values.
+# There may be more `values` than there are indices. Rest of `values`, 
+# however many there is, correspond to indices from the start of the sendtable -
+# this trick saves a few bytes of traffic per frame.
+static func pack_data_frame(sendtable:Array, frame:Dictionary):
+	var sendtable_ids = []
+	var values_no_id = []
+	var values = []
+	var sendtable_id = -1
+	var must_use_id = false
+	for prop in sendtable:
+		sendtable_id += 1
+		if not (prop in frame):
+			must_use_id = true
+			continue
+		if must_use_id:
+			sendtable_ids.append(sendtable_id)
+			values.append(frame[prop])
+		else:
+			values_no_id.append(frame[prop])
+	#values.append_array(values_no_id) # this raises for some reason Invalid call. Nonexistent function 'append_array' in base 'Array'.
+	values += values_no_id
+	return [
+		sendtable_ids if sendtable_ids.size() else null, 
+		values if values.size() else null
+	]
 
-static func parse_data_frame(sendtable, values):
-	[sendtable, values] # !!!
+# Reverse pack_data_frame() called at receiving end.
+static func parse_data_frame(sendtable:Array, sendtable_ids, values)->Dictionary:
+	assert(sendtable_ids == null or sendtable_ids is Array or sendtable_ids is PoolIntArray)
+	assert(values == null or values is Array)
+	var result = {}
+	if values == null:
+		return result
+	var sendtable_index = 0
+	var sendtable_ids_index = 0
+	for value in values:
+		var sendtable_id
+		if sendtable_ids != null and sendtable_ids.size() > sendtable_ids_index:
+			sendtable_id = sendtable_ids[sendtable_ids_index]
+			sendtable_ids_index += 1
+		else:
+			assert(sendtable.size() > sendtable_index, "Too many values")
+			sendtable_id = sendtable_index
+			sendtable_index += 1
+		result[sendtable[sendtable_id]] = value
+	return result
 
+# Returns object to serve as a drop-in replacement for builtin Input to proxy
+# player input through. On server, this receives remote input over the net.
+# Objects belonging to local player on both client and server will receive local input.
+# This requires `belongs_to_peer_id` field to be properly set.
 func get_input():
 	if not input or input.get_peer_id() != belongs_to_peer_id:
 		input = SyncManager.get_input_facade(belongs_to_peer_id)

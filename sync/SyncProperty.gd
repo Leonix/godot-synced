@@ -251,7 +251,7 @@ func resize(new_size):
 
 # Determine value to be sent and protocol preference
 func shouldsend(last_reliable_state_id:int, current_state_id:int=-1):
-	if self.sync_strategy == DO_NOT_SYNC:
+	if self.sync_strategy == DO_NOT_SYNC or not ready_to_read():
 		return null
 	last_reliable_state_id = relative_state_id(last_reliable_state_id)
 	current_state_id = relative_state_id(current_state_id)
