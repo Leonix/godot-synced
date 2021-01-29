@@ -81,6 +81,17 @@ var _first_process_since_physics_process = true
 # Used to control rate of sending input from client to server
 var _mtime_last_input_batch_sent = 0.0
 
+# Delays processing of received packets on Client by this many seconds,
+# simulating network latency. Array of two floats means [min,max] sec, 
+# null to disable. This applies only once, delaying server->client traffic.
+# Client->server traffic is unaffected.
+var simulate_network_latency = null # [0.2, 0.3]
+
+# Refuses to deliver this percent of unreliable packets at random.
+# Simulates network packet loss. Applies both to sync (server->client)
+# and input (client->server) packets.
+var simulate_unreliable_packet_loss_percent = 0.0
+
 var SyncPeer = preload("res://sync/SyncPeer.tscn")
 
 # Input sendtable maps numbers (int) to InputMap actions (String) to use
@@ -177,6 +188,11 @@ func send_input_batch():
 
 	assert(is_client())
 	assert(storage.container.size() >= self.input_frames_min_batch, 'input_frames_min_batch can not be less than input_frames_history_size')
+
+	# simulate packet loss
+	if SyncManager.simulate_unreliable_packet_loss_percent > 0:
+		if rand_range(0, 100) < SyncManager.simulate_unreliable_packet_loss_percent:
+			return
 
 	var frames = []
 	var first_input_id = storage.last_state_id - self.input_frames_min_batch + 1

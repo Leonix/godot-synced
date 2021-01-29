@@ -138,6 +138,11 @@ func send_all_data_frames():
 
 		match prepare_data_frame(get_last_reliable_state_ids(null if can_batch else peer_id)):
 			[var sendtable, var reliable_frame, var unreliable_frame]:
+
+				# simulate packet loss
+				if SyncManager.simulate_unreliable_packet_loss_percent > 0:
+					if rand_range(0, 100) < SyncManager.simulate_unreliable_packet_loss_percent:
+						unreliable_frame = null
 				
 				if unreliable_frame and unreliable_frame.size() > 0:
 					#print('!!! sending unreliable frame %s (can_batch=%s) %s ' % [SyncManager.state_id, can_batch, unreliable_frame])
@@ -220,6 +225,9 @@ func prepare_data_frame(prop_reliable_state_ids:Dictionary):
 
 # Called via RPC, sending data from Server to all Clients.
 puppet func receive_data_frame(state_id, sendtable_ids, values):
+	if SyncManager.simulate_network_latency != null:
+		var delay = rand_range(SyncManager.simulate_network_latency[0], SyncManager.simulate_network_latency[1])
+		yield(get_tree().create_timer(delay), "timeout")
 	var frame = parse_data_frame(sync_properties.keys(), sendtable_ids, values)
 	#print('!!! received frame %s %s %s %s' % [state_id, sendtable_ids, values, frame])
 	for prop in frame:
