@@ -74,6 +74,8 @@ var container: Array
 var last_index: int = -1
 # state_id written at container[last_index]
 var last_state_id: int = 0
+# state_id when value changed latst time
+var last_changed_state_id: int = 0
 
 # Options as passed to the constructor. 
 # Can be used to store additional meta-data.
@@ -140,6 +142,7 @@ func write(state_id: int, value):
 	if last_index < 0:
 		last_index = 0
 		last_state_id = state_id
+		last_changed_state_id = last_state_id
 		for i in range(container.size()):
 			container[i] = value
 		return
@@ -151,6 +154,8 @@ func write(state_id: int, value):
 	# Overwrite historic value from the not-so-long-ago
 	if state_id <= last_state_id:
 		container[_get_index(state_id)] = value
+		if last_changed_state_id < state_id and container[_get_index(state_id-1)] != value:
+			last_changed_state_id = state_id
 		return
 
 	var new_last_state_id = state_id
@@ -181,6 +186,9 @@ func write(state_id: int, value):
 	last_state_id = new_last_state_id
 	last_index = wrapi(last_index + 1, 0, container.size())
 	container[last_index] = value
+
+	if old_last_value != value:
+		last_changed_state_id = new_last_state_id
 	
 # Extrapolate according to settings of this propoerty, based on two given data points
 func _extrapolate(state_id):
@@ -236,20 +244,44 @@ func resize(new_size):
 	assert(last_index < 0, "Attempt to resize a non-empty SyncProperty")
 	container.resize(new_size)
 
+# Determine value to be sent and protocol preference
+func shouldsend(last_reliable_state_id, current_state_id=-1):
+	last_reliable_state_id = relative_state_id(last_reliable_state_id)
+	current_state_id = relative_state_id(current_state_id)
+	if current_state_id <= last_reliable_state_id:
+		return null
+	if self.sync_strategy == UNRELIABLE_SYNC:
+		return [UNRELIABLE_SYNC, read(current_state_id)]
+	if not changed(last_reliable_state_id, current_state_id):
+		return null
+	if self.sync_strategy == RELIABLE_SYNC:
+		return [RELIABLE_SYNC, read(current_state_id)]
+	# When property stops changing, AUTO_SYNC becomes RELIABLE_SYNC
+	if current_state_id - last_changed_state_id > strat_stale_delay:
+		return [RELIABLE_SYNC, read(current_state_id)]
+	return [AUTO_SYNC, read(current_state_id)]
+
 # Return true if property changed between these two states
 # (or since given state if only one is provided)
 func changed(old_state_id:int, new_state_id:int=-1):
 	if old_state_id == 0:
 		return true
-	if old_state_id < 0:
-		old_state_id = last_state_id + 1 + old_state_id
-	if new_state_id < 0:
-		new_state_id = last_state_id + 1 + new_state_id
-	if new_state_id <= old_state_id:
+	old_state_id = relative_state_id(old_state_id)
+	new_state_id = relative_state_id(new_state_id)
+	if old_state_id >= new_state_id or last_changed_state_id <= old_state_id and last_changed_state_id <= new_state_id:
 		return false
-	# !!! this is wrong because value may have changed back and forth
-	# Probably have to store and maintain last modified state_id
-	return container[_get_index(old_state_id)] == container[_get_index(new_state_id)]
+	if old_state_id < last_changed_state_id and last_changed_state_id <= new_state_id:
+		return true
+	# Strictly speaking, this is wrong because value may have changed somewhere
+	# and then returned back again. I'll keep it like that until there's 
+	# a strong reason to be 100% precise.
+	return container[_get_index(old_state_id)] != container[_get_index(new_state_id)]
+
+# helper to normalize negative indices
+func relative_state_id(state_id):
+	if state_id < 0:
+		return last_state_id + 1 + state_id
+	return state_id
 
 func ready_to_read():
 	return last_index >= 0

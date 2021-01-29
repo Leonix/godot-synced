@@ -172,7 +172,7 @@ func prepare_data_frame(prop_reliable_state_ids:Dictionary):
 	var sendtable = sync_properties.keys()
 	for prop in sendtable:
 		var property = sync_properties[prop]
-		match property.changed(prop_reliable_state_ids.get(prop, 0)):
+		match property.shouldsend(prop_reliable_state_ids.get(prop, 0)):
 			[SyncProperty.CLIENT_OWNED, ..],\
 			[SyncProperty.DO_NOT_SYNC, ..]:
 				pass
