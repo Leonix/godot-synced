@@ -43,41 +43,6 @@ func test_no_interpolation():
 	assert_eq(100.0, prop.read(1)) # value older than stored
 	#gut.p('%s; last_state_id=%s, last_index=%s' % [prop.container, prop.last_state_id, prop.last_index])
 
-func test_changed():
-	assert_null(prop)
-	prop = SyncProperty.new({})
-	prop.resize(10)
-	prop.write(11, 111.0)
-	assert_eq(11, prop.last_changed_state_id)
-	assert_true(prop.changed(10))
-	assert_false(prop.changed(11))
-	prop.write(12, 112.0)
-	assert_true(prop.changed(11))
-	assert_false(prop.changed(12))
-	assert_true(prop.changed(11, 12))
-	prop.write(13, 113.0)
-	assert_eq(13, prop.last_changed_state_id)
-	prop.write(14, 114.0)
-	prop.write(15, 115.0)
-	prop.write(16, 116.0)
-	assert_eq(16, prop.last_changed_state_id)
-	prop.write(17, 116.0)
-	assert_eq(16, prop.last_changed_state_id)
-	prop.write(20, 116.0)
-	assert_eq(16, prop.last_changed_state_id)	
-	assert_true(prop.changed(11))
-	assert_true(prop.changed(15))
-	assert_true(prop.changed(15, 16))
-	assert_true(prop.changed(15, 20))
-	assert_false(prop.changed(16))
-	assert_false(prop.changed(16, 17))
-	assert_false(prop.changed(16, 20))
-	prop.write(24, 124.0)
-	assert_eq(24, prop.last_changed_state_id)	
-	assert_true(prop.changed(15))
-	assert_true(prop.changed(16))
-	assert_true(prop.changed(20))
-
 func test_linear_interpolation():
 	assert_null(prop)
 	prop = SyncProperty.new({
@@ -124,6 +89,41 @@ func test_linear_interpolation():
 	assert_eq(118.0, prop.read(18.5)) # interpolation between equal values
 	#gut.p('%s; last_state_id=%s, last_index=%s' % [prop.container, prop.last_state_id, prop.last_index])
 
+func test_changed():
+	assert_null(prop)
+	prop = SyncProperty.new({})
+	prop.resize(10)
+	prop.write(11, 111.0)
+	assert_eq(11, prop.last_changed_state_id)
+	assert_true(prop.changed(10))
+	assert_false(prop.changed(11))
+	prop.write(12, 112.0)
+	assert_true(prop.changed(11))
+	assert_false(prop.changed(12))
+	assert_true(prop.changed(11, 12))
+	prop.write(13, 113.0)
+	assert_eq(13, prop.last_changed_state_id)
+	prop.write(14, 114.0)
+	prop.write(15, 115.0)
+	prop.write(16, 116.0)
+	assert_eq(16, prop.last_changed_state_id)
+	prop.write(17, 116.0)
+	assert_eq(16, prop.last_changed_state_id)
+	prop.write(20, 116.0)
+	assert_eq(16, prop.last_changed_state_id)	
+	assert_true(prop.changed(11))
+	assert_true(prop.changed(15))
+	assert_true(prop.changed(15, 16))
+	assert_true(prop.changed(15, 20))
+	assert_false(prop.changed(16))
+	assert_false(prop.changed(16, 17))
+	assert_false(prop.changed(16, 20))
+	prop.write(24, 124.0)
+	assert_eq(24, prop.last_changed_state_id)	
+	assert_true(prop.changed(15))
+	assert_true(prop.changed(16))
+	assert_true(prop.changed(20))
+
 func test_get_index():
 	assert_null(prop)
 	prop = SyncProperty.new({})
@@ -138,3 +138,78 @@ func test_get_index():
 	assert_eq(115.0, prop.container[prop._get_index(16)])
 	for i in range(12, 16):
 		assert_eq(100.0+i, prop.container[prop._get_index(i)])
+
+func test_shouldsend_reliable_unreliable(strat=use_parameters([SyncProperty.RELIABLE_SYNC, SyncProperty.UNRELIABLE_SYNC])):
+	prop = SyncProperty.new({
+		sync_strategy = strat,
+		strat_stale_delay = 2
+	})
+	assert_eq(strat, prop.sync_strategy)
+	prop.resize(10)
+	prop.write(11, 111.0)
+	prop.write(15, 115.0)
+	assert_eq([strat, 115.0], prop.shouldsend(14))
+	assert_null(prop.shouldsend(15))
+	prop.write(17, 115.0)
+	assert_eq(15, prop.last_changed_state_id)
+	assert_false(prop.changed(15))
+	assert_eq([strat, 115.0], prop.shouldsend(14))
+	assert_eq([strat, 115.0], prop.shouldsend(12))
+	assert_null(prop.shouldsend(15))
+	assert_null(prop.shouldsend(17))
+	assert_null(prop.shouldsend(18))
+	prop.write(19, 115.0)
+	assert_eq([strat, 115.0], prop.shouldsend(12))
+	assert_null(prop.shouldsend(17))
+
+func test_shouldsend_auto():
+	var strat = SyncProperty.AUTO_SYNC
+	prop = SyncProperty.new({
+		sync_strategy = strat,
+		strat_stale_delay = 2
+	})
+	assert_eq(strat, prop.sync_strategy)
+	prop.resize(10)
+	prop.write(11, 111.0)
+	prop.write(15, 115.0)
+	assert_eq([strat, 115.0], prop.shouldsend(14))
+	assert_null(prop.shouldsend(15))
+	prop.write(17, 115.0)
+	assert_eq(15, prop.last_changed_state_id)
+	assert_false(prop.changed(15))
+	assert_eq([strat, 115.0], prop.shouldsend(14))
+	assert_eq([strat, 115.0], prop.shouldsend(12))
+	assert_null(prop.shouldsend(15))
+	assert_null(prop.shouldsend(17))
+	assert_null(prop.shouldsend(18))
+	prop.write(18, 115.0)
+	assert_eq([SyncProperty.RELIABLE_SYNC, 115.0], prop.shouldsend(13))
+	assert_null(prop.shouldsend(17))
+	prop.write(21, 116.0)
+	assert_eq([strat, 116.0], prop.shouldsend(20))
+
+func test_shouldsend_do_not_sync():
+	var strat = SyncProperty.DO_NOT_SYNC
+	prop = SyncProperty.new({
+		sync_strategy = strat,
+		strat_stale_delay = 2
+	})
+	assert_eq(strat, prop.sync_strategy)
+	prop.resize(10)
+	prop.write(11, 111.0)
+	prop.write(15, 115.0)
+	assert_null(prop.shouldsend(14))
+	assert_null(prop.shouldsend(15))
+	prop.write(17, 115.0)
+	assert_eq(15, prop.last_changed_state_id)
+	assert_false(prop.changed(15))
+	assert_null(prop.shouldsend(14))
+	assert_null(prop.shouldsend(12))
+	assert_null(prop.shouldsend(15))
+	assert_null(prop.shouldsend(17))
+	assert_null(prop.shouldsend(18))
+	prop.write(18, 115.0)
+	assert_null(prop.shouldsend(13))
+	assert_null(prop.shouldsend(17))
+	prop.write(21, 116.0)
+	assert_null(prop.shouldsend(20))

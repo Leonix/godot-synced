@@ -250,21 +250,17 @@ func resize(new_size):
 	container.resize(new_size)
 
 # Determine value to be sent and protocol preference
-func shouldsend(last_reliable_state_id, current_state_id=-1):
+func shouldsend(last_reliable_state_id:int, current_state_id:int=-1):
+	if self.sync_strategy == DO_NOT_SYNC:
+		return null
 	last_reliable_state_id = relative_state_id(last_reliable_state_id)
 	current_state_id = relative_state_id(current_state_id)
-	if current_state_id <= last_reliable_state_id:
-		return null
-	if self.sync_strategy == UNRELIABLE_SYNC:
-		return [UNRELIABLE_SYNC, read(current_state_id)]
 	if not changed(last_reliable_state_id, current_state_id):
 		return null
-	if self.sync_strategy == RELIABLE_SYNC:
-		return [RELIABLE_SYNC, read(current_state_id)]
 	# When property stops changing, AUTO_SYNC becomes RELIABLE_SYNC
-	if current_state_id - last_changed_state_id > strat_stale_delay:
-		return [RELIABLE_SYNC, read(current_state_id)]
-	return [AUTO_SYNC, read(current_state_id)]
+	if self.sync_strategy == AUTO_SYNC and current_state_id - last_changed_state_id > strat_stale_delay:
+		return [RELIABLE_SYNC, _get(current_state_id)]
+	return [self.sync_strategy, _get(current_state_id)]
 
 # Return true if property changed between these two states
 # (or since given state if only one is provided)
@@ -280,12 +276,13 @@ func changed(old_state_id:int, new_state_id:int=-1):
 	# Strictly speaking, this is wrong because value may have changed somewhere
 	# and then returned back again. I'll keep it like that until there's 
 	# a strong reason to be 100% precise.
-	return container[_get_index(old_state_id)] != container[_get_index(new_state_id)]
+	return _get(old_state_id) != _get(new_state_id)
 
 # helper to normalize negative indices
-func relative_state_id(state_id):
+func relative_state_id(state_id:int)->int:
 	if state_id < 0:
-		return max(1, last_state_id + 1 + state_id)
+		var result = last_state_id + 1 + state_id
+		return result if result > 0 else 1
 	return state_id
 
 func ready_to_read():
