@@ -1,8 +1,8 @@
 #
-# Stores history of values of a single property of a SyncBase 
-# over a period of consecutive integer state_ids.
-# Allows to interpolate in between stored values, 
-# as well as extrapolate some time into the future.
+# Stores history of values of a single property of a SyncBase over a period
+# of consecutive integer state_ids.
+# Allows to interpolate in between stored values, as well as extrapolate
+# for some time into the future.
 #
 
 extends Node
@@ -77,26 +77,31 @@ var last_state_id: int = 0
 # state_id when value changed latst time
 var last_changed_state_id: int = 0
 
-# Options as passed to the constructor. 
-# Can be used to store additional meta-data.
-export var opts: Dictionary
+# Storage for additional meta-data.
+# Unrecognized options passed to the constructor go here.
+export var meta: Dictionary
 
 func _init(options: Dictionary = {}):
+	meta = {}
+	container = []
 	for k in options:
 		if is_valid_option(k):
 			self.set(k, options[k])
-	self.opts = options.duplicate()
-	self.container = []
+		else:
+			meta[k] = options[k]
 
 func _get(state_id_str):
+	if state_id_str is int and state_id_str <= last_state_id:
+		assert(ready_to_read(), "Attempt to read from SyncProperty before any write has happened.")
+		return self.container[_get_index(state_id_str)]
 	var state_id = float(state_id_str)
-	if state_id != 0:
+	if state_id != 0.0:
 		return self.read(state_id)
 
 # Return value from last state_id. Optionally allows to skip several last state ids,
 # e.g. last(1) will return second last.
 func last(skip=0):
-	return self.read(last_state_id - skip)
+	return self.read(max(1, last_state_id - skip))
 
 func _set(state_id_str, value):
 	var state_id = int(state_id_str)
@@ -280,7 +285,7 @@ func changed(old_state_id:int, new_state_id:int=-1):
 # helper to normalize negative indices
 func relative_state_id(state_id):
 	if state_id < 0:
-		return last_state_id + 1 + state_id
+		return max(1, last_state_id + 1 + state_id)
 	return state_id
 
 func ready_to_read():
