@@ -8,55 +8,54 @@ var _speed = DEFAULT_SPEED
 
 onready var _screen_size = get_viewport_rect().size
 
-func _process(delta):
-	_speed += delta
-	# Ball will move normally for both players,
-	# even if it's sightly out of sync between them,
-	# so each player sees the motion as smooth and not jerky.
+onready var synced = $synced
+
+func _ready():
+	synced.position = self.position
+
+func _process(_delta):
+	self.position = synced.position
+
+func _physics_process(delta):
+	# Don't have to do anything here unless we're the server.
+	# (We may still run the code, but it won't do anything since 
+	# all synced properties are write-protected on Client)
+	if SyncManager.is_client():
+		return
+
 	if not stopped:
-		translate(_speed * delta * direction)
+		_speed += delta
+		synced.position += _speed * delta * direction
 
 	# Check screen bounds to make ball bounce.
-	var ball_pos = position
-	if (ball_pos.y < 0 and direction.y < 0) or (ball_pos.y > _screen_size.y and direction.y > 0):
+	if (synced.position.y < 0 and direction.y < 0) or (synced.position.y > _screen_size.y and direction.y > 0):
 		direction.y = -direction.y
 
-	if is_network_master():
-		# Only the master will decide when the ball is out in
-		# the left side (it's own side). This makes the game
-		# playable even if latency is high and ball is going
-		# fast. Otherwise ball might be out in the other
-		# player's screen but not this one.
-		if ball_pos.x < 0:
-			get_parent().rpc("update_score", false)
-			rpc("_reset_ball", false)
-	else:
-		# Only the puppet will decide when the ball is out in
-		# the right side, which is it's own side. This makes
-		# the game playable even if latency is high and ball
-		# is going fast. Otherwise ball might be out in the
-		# other player's screen but not this one.
-		if ball_pos.x > _screen_size.x:
-			get_parent().rpc("update_score", true)
-			rpc("_reset_ball", true)
+	# Check if scored
+	if synced.position.x < 0:
+		get_parent().update_score(false)
+		_reset_ball(false)
+	elif synced.position.x > _screen_size.x:
+		get_parent().update_score(true)
+		_reset_ball(true)
 
-
+# called by paddle.gd when ball hits the paddle
 func bounce(left, random):
 	if left:
 		direction.x = abs(direction.x)
 	else:
 		direction.x = -abs(direction.x)
-
 	_speed *= 1.1
 	direction.y = random * 2.0 - 1
 	direction = direction.normalized()
 
-sync func stop():
+# called by pong.gd when the game ends
+func stop():
 	stopped = true
 
-
-sync func _reset_ball(for_left):
+func _reset_ball(for_left):
 	position = _screen_size / 2
+	synced.position = _screen_size / 2
 	if for_left:
 		direction = Vector2.LEFT
 	else:

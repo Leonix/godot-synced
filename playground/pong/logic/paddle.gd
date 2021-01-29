@@ -23,10 +23,7 @@ func _process(_delta):
 func _physics_process(delta):
 	_motion = synced.input.get_action_strength("move_down") - synced.input.get_action_strength("move_up")
 	_motion *= MOTION_SPEED
-
-	translate(Vector2(0, _motion * delta))
-	position.y = clamp(position.y, 16, _screen_size_y - 16)
-	synced.position = self.position
+	synced.position.y = clamp(synced.position.y + _motion * delta, 16, _screen_size_y - 16)
 
 func _hide_you_label():
 	_you_hidden = true

@@ -114,9 +114,10 @@ func _set(state_id_str, value):
 func read(state_id: float):
 	assert(ready_to_read(), "Attempt to read from SyncProperty before any write has happened.")
 
+	if state_id < 0:
+		state_id = max(1, last_state_id + 1 + state_id)
 	if last_state_id < state_id:
 		return _extrapolate(state_id)
-	
 	# state_ids and container indices we need to interpolate between
 	var left_state_id = int(state_id)
 	var right_state_id = left_state_id + 1

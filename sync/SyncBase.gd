@@ -140,7 +140,7 @@ func send_all_data_frames():
 			[var sendtable, var reliable_frame, var unreliable_frame]:
 				
 				if unreliable_frame and unreliable_frame.size() > 0:
-					print('!!! sending unreliable frame %s (can_batch=%s) %s ' % [SyncManager.state_id, can_batch, unreliable_frame])
+					#print('!!! sending unreliable frame %s (can_batch=%s) %s ' % [SyncManager.state_id, can_batch, unreliable_frame])
 					var data = pack_data_frame(sendtable, unreliable_frame)
 					var sendtable_ids = data[0]
 					if sendtable_ids != null:
@@ -151,7 +151,7 @@ func send_all_data_frames():
 						rpc_unreliable_id(peer_id, 'receive_data_frame', SyncManager.state_id, sendtable_ids, data[1])
 
 				if reliable_frame and reliable_frame.size() > 0:
-					print('!!! sending reliable frame %s (can_batch=%s) %s ' % [SyncManager.state_id, can_batch, reliable_frame])
+					#print('!!! sending reliable frame %s (can_batch=%s) %s ' % [SyncManager.state_id, can_batch, reliable_frame])
 					var data = pack_data_frame(sendtable, reliable_frame)
 					var sendtable_ids = data[0]
 					if sendtable_ids != null:
@@ -221,6 +221,7 @@ func prepare_data_frame(prop_reliable_state_ids:Dictionary):
 # Called via RPC, sending data from Server to all Clients.
 puppet func receive_data_frame(state_id, sendtable_ids, values):
 	var frame = parse_data_frame(sync_properties.keys(), sendtable_ids, values)
+	#print('!!! received frame %s %s %s %s' % [state_id, sendtable_ids, values, frame])
 	for prop in frame:
 		sync_properties[prop].write(state_id, frame[prop])
 
@@ -290,7 +291,10 @@ func is_local_peer():
 
 func default_read_state_id():
 	# !!! TODO implement interpolation on client
-	return SyncManager.state_id
+	if SyncManager.is_client():
+		return -1
+	else:
+		return -1
 
 func default_write_state_id():
 	return SyncManager.state_id
