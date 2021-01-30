@@ -61,10 +61,13 @@ var state_id_frac setget , get_state_id_frac
 var _state_id_frac_fix = 0.0
 var _first_process_since_physics_process = true
 
-# Last state_id received from Server
+# Used to sync server clock and client clock.
+# Contain time of receiving 
+var _old_received_state_id = 0
 var _last_received_state_id = 0
-# Microtime when _last_received_state_id was received
+var _old_received_state_mtime = 0
 var _last_received_state_mtime = 0
+var _server_tickrate = 1000.0 / Engine.iterations_per_second
 
 # Used during client-side-prediction correction
 var _contains_csp_property = false
@@ -110,19 +113,15 @@ func _physics_process(_delta):
 	# Increment global state time
 	state_id += 1
 	_first_process_since_physics_process = true
+
 	if SyncManager.is_client():
+		# Fix clock desync
+		state_id = fix_current_state_id(state_id)
+
 		if _last_frame_had_data:
-			# This scary block figures out if client should skip some state_ids
-			# or wait and render state_id two times in a row. This is needed in case
-			# of clock desync between client and server, or short network failure.
-			var mtime_since_last_update = OS.get_system_time_msecs() - _last_received_state_mtime
-			var should_be_current_state_id = _last_received_state_id + mtime_since_last_update / 1000.0 * Engine.iterations_per_second
-			if abs(should_be_current_state_id - state_id) >= 2:
-				state_id = int(should_be_current_state_id)
+			# Refuse to extrapolate more than allowed by global settings
 			if state_id > _last_received_state_id + SyncManager.max_offline_extrapolation:
 				state_id = _last_received_state_id + SyncManager.max_offline_extrapolation
-			if input_id_to_state_id:
-				input_id_to_state_id.write(SyncManager.get_local_peer().input_id, state_id)
 		else:
 			# Last time we received an empty frame from Server.
 			# It means that no values changed and likely will not change soon.
@@ -136,6 +135,10 @@ func _physics_process(_delta):
 					if property.debug_log: print('ext_emp_f')
 					property.write(state_id, property._get(-1))
 
+		# Remember which input_id was recorded at which state_id (for CSP correction)
+		if input_id_to_state_id:
+			input_id_to_state_id.write(SyncManager.get_local_peer().input_id, state_id)
+
 	# Send data frame fromo server to clients if time has come
 	if SyncManager.is_server():
 		var time = OS.get_system_time_msecs()
@@ -146,6 +149,35 @@ func _physics_process(_delta):
 			else:
 				_mtime_when_send_next_frame += delay
 			send_all_data_frames()
+
+# Maintain stats to calculate a running average
+# for server tickrate over (up to) last 1000 frames
+func update_received_state_id_and_mtime(new_server_state_id):
+	if _last_received_state_id >= new_server_state_id:
+		return
+	_last_received_state_id = new_server_state_id
+	_last_received_state_mtime = OS.get_system_time_msecs()
+	if _old_received_state_id == 0:
+		_old_received_state_id = _last_received_state_id
+		_old_received_state_mtime = _last_received_state_mtime
+		return
+	var new_state_diff = _last_received_state_id - _old_received_state_id
+	var new_time_diff = _last_received_state_mtime - _old_received_state_mtime
+	if new_state_diff > 1000:
+		_old_received_state_id = _last_received_state_id - 1000
+		_old_received_state_mtime = _last_received_state_mtime - (new_time_diff * 1000.0 / new_state_diff)
+	
+# This scary logic figures out if client should skip some state_ids
+# or wait and render state_id two times in a row. This is needed in case
+# of clock desync between client and server, or short network failure.
+func fix_current_state_id(st_id:int)->int:
+	var should_be_current_state_id = int(clamp(st_id, _last_received_state_id, _last_received_state_id + SyncManager.client_interpolation_lag))
+	if synced_property('position') and synced_property('position').debug_log:
+		if st_id != should_be_current_state_id: # !!!
+			print('fix state_id %s/%s->%s/%s+%s)' % [_last_received_state_id, st_id, int(move_toward(st_id, should_be_current_state_id, 1)), _last_received_state_id, SyncManager.client_interpolation_lag]) # !!!
+		else:
+			print('state_id ok %s/%s/%s+%s' % [_last_received_state_id, st_id, _last_received_state_id, SyncManager.client_interpolation_lag]) # !!!
+	return int(move_toward(st_id, should_be_current_state_id, 1))
 
 func _auto_sync_all_to_parent():
 	assert(not SyncManager.is_server())
@@ -389,9 +421,7 @@ puppet func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, val
 			property.write(st_id, property._get(-1))
 		
 	_last_frame_had_data = frame.size() > 0
-	if _last_received_state_id < st_id:
-		_last_received_state_id = st_id
-		_last_received_state_mtime = OS.get_system_time_msecs()
+	update_received_state_id_and_mtime(st_id)
 
 # Tightly pack data frame before sending
 # `sendtable` is an Array of Property names (strings) used to encode values.
@@ -525,7 +555,9 @@ func _get(prop):
 			_auto_sync_from_parent(p)
 		assert(p.ready_to_read(), "Attempt to read from %s:%s before any writes happened" % [get_path(), prop])
 		if not SyncManager.is_client() or is_csp_enabled(p) or p.sync_strategy == SyncedProperty.CLIENT_OWNED:
+			if p.debug_log: print('read(-1)%s' % p.read(-1)) # !!!
 			return p.read(-1)
+		if p.debug_log: print('read(%s)%s' % [get_interpolation_state_id(), p.read(get_interpolation_state_id())]) # !!!
 		return p.read(get_interpolation_state_id())
 
 func _set(prop, value):
