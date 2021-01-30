@@ -33,4 +33,6 @@ script = ExtResource( 4 )
 
 [node name="position" type="Node" parent="synced"]
 script = ExtResource( 3 )
+interpolation = 1
+missing_state_interpolation = 1
 [connection signal="area_entered" from="." to="." method="_on_paddle_area_enter"]

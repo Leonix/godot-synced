@@ -88,12 +88,8 @@ var input_prediction_max_frames = 4
 # 0 will disable trying to change state_id_frac.
 var state_id_frac_to_integer_reduction = 0.04
 
-#
-# Private vars zone
-#
-
-# Used to control rate of sending input from client to server
-var _mtime_last_input_batch_sent = 0.0
+# Max state_ids client is allowed to extrapolate without data from server
+var max_offline_extrapolation = 20
 
 # Delays processing of received packets on Client by this many seconds,
 # simulating network latency. Array of two floats means [min,max] sec, 
@@ -105,6 +101,13 @@ var simulate_network_latency = null # [0.2, 0.3]
 # Simulates network packet loss. Applies both to sync (server->client)
 # and input (client->server) packets.
 var simulate_unreliable_packet_loss_percent = 0.0
+
+#
+# Private vars zone
+#
+
+# Used to control rate of sending input from client to server
+var _mtime_last_input_batch_sent = 0.0
 
 var SyncPeer = preload("res://sync/SyncPeer.tscn")
 

@@ -70,6 +70,11 @@ var state_id_frac setget , get_state_id_frac
 var _state_id_frac_fix = 0.0
 var _first_process_since_physics_process = true
 
+# Last state_id received from Server
+var _last_received_state_id = 0
+# Microtime when _last_received_state_id was received
+var _last_received_state_mtime = 0
+
 func _ready():
 	SyncManager.SyncBase_created(self, spawner)
 
@@ -113,7 +118,14 @@ func _physics_process(_delta):
 	# Increment global state time
 	state_id += 1
 	_first_process_since_physics_process = true
-	
+	if SyncManager.is_client():
+		var mtime_since_last_update = OS.get_system_time_msecs() - _last_received_state_mtime
+		var should_be_current_state_id = _last_received_state_id + mtime_since_last_update / 1000.0 * Engine.iterations_per_second
+		if abs(should_be_current_state_id - state_id) >= 2:
+			state_id = int(should_be_current_state_id)
+		if state_id > _last_received_state_id + SyncManager.max_offline_extrapolation:
+			state_id = _last_received_state_id + SyncManager.max_offline_extrapolation
+
 	if SyncManager.is_server():
 		var time = OS.get_system_time_msecs()
 		if _mtime_when_send_next_frame <= time:
@@ -255,8 +267,15 @@ puppet func receive_data_frame(st_id, sendtable_ids, values):
 		yield(get_tree().create_timer(delay), "timeout")
 	var frame = parse_data_frame(sync_properties.keys(), sendtable_ids, values)
 	#print('!!! received frame %s %s %s %s' % [st_id, sendtable_ids, values, frame])
-	for prop in frame:
-		sync_properties[prop].write(st_id, frame[prop])
+	for prop in sync_properties:
+		if prop in frame:
+			sync_properties[prop].write(st_id, frame[prop])
+		else:
+			sync_properties[prop].write(st_id, sync_properties[prop]._get(st_id))
+		
+	if _last_received_state_id < st_id:
+		_last_received_state_id = st_id
+		_last_received_state_mtime = OS.get_system_time_msecs()
 
 # Tightly pack data frame before sending
 # `sendtable` is an Array of Property names (strings) used to encode values.
@@ -335,25 +354,30 @@ func set_state_id(_value):
 func get_state_id():
 	return state_id
 
-func default_read_state_id():
-	if not SyncManager.is_client():
-		return -1
-
-	# !!! TODO implement interpolation on client
-	return -1
-
-func default_write_state_id():
-	return state_id
+func get_interpolation_state_id():
+	assert(SyncManager.is_client())
+	return get_state_id_frac() - SyncManager.client_interpolation_lag
 
 func _get(prop):
 	var p = sync_properties.get(prop)
 	if p:
 		assert(p.ready_to_read(), "Attempt to read from %s:%s before any writes happened" % [get_path(), prop])
-		return p.read(default_read_state_id())
+		if not SyncManager.is_client():
+			return p.read(-1)
+		# !!! client-side-prediction not implemented yet
+		return p.read(get_interpolation_state_id())
 
 func _set(prop, value):
 	var p = sync_properties.get(prop)
 	if p:
 		assert(p.ready_to_write(), "Improperly initialized SyncProperty %s:%s" % [get_path(), prop])
-		p.write(default_write_state_id(), value)
+		
+		# Normal interpolated properties are only writable on Server.
+		# But we always allow the first write, even on a client.
+		if p.ready_to_read():
+			if SyncManager.is_client():
+				# !!! client-side-prediction and client-owned-properties are not implemented yet
+				if p.sync_strategy != SyncProperty.CLIENT_OWNED:
+					return true
+		p.write(state_id, value)
 		return true
