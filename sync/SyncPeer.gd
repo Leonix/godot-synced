@@ -1,4 +1,5 @@
 extends Node
+class_name SyncPeer
 
 # Script for SyncPeer.tscn scene.
 # Scene holds data structures for one network peer. 
@@ -73,7 +74,7 @@ func _physics_process(_delay):
 			# If no data from client for too long, insert an empty input frame
 			if stale_input_frame_count > SyncManager.input_prediction_max_frames:
 				input_id += 1
-				stale_input_frame_count = 0
+				stale_input_frame_count = 1
 				storage.write(input_id, get_empty_input_frame())
 
 		# Skip input frames if too many comes from the client for any reason.
@@ -87,6 +88,12 @@ func _physics_process(_delay):
 		# TODO: it is possible to invent more complicated srategies, like skipping 
 		# current frame if it matches either previous or the next one...
 		# At this point it feels premature to try that.
+
+# True if server did not have enough input frames from client this frame
+# and had to fall back to previous one. We disable correction of 
+# client-side-predicted values for such frames.
+func is_stale_input():
+	return not is_local() and bool(stale_input_frame_count)
 
 # Helper to initialize sendtable based on InputMap
 func parse_input_map(input_map):
@@ -302,3 +309,82 @@ func get_empty_input_frame():
 
 func is_local():
 	return self.name == '0'
+
+# Maps input_id to values, up to buffer size.
+# !!! TODO: use this instead of SyncProperty
+class CircularBuffer:
+
+	# Storage place for historic values.
+	# This is used as a circular buffer. We keep track of last written index self.last_index,
+	# and loop over when reach the end of allocated container space.
+	# Contains consecutive values for all integer state_ids ending with self.last_input_id
+	# The earliest value we know is always at `self.last_index+1` (possibly loop over),
+	# and the earliest value always corresponds to `self.last_input_id - container.size() + 1`
+	var container: Array
+	# Index in self.container that contains data for the most recent input_id
+	# -1 here means the property has never been written to yet.
+	var last_index: int = 0
+	# input_id written at container[last_index]
+	var last_input_id: int = 0
+
+	func _init(size, value):
+		container = []
+		container.resize(size)
+		for i in range(size):
+			container[i] = value
+
+	# Returns value at given input_id
+	func read(input_id: int):
+		return container[_get_index(relative_input_id(input_id))]
+
+	# Write property value at given input_id.
+	# Overwrites historic value or adds a new input_id.
+	# Write is ignored if input_id is too old.
+	func write(input_id: int, value):
+
+		# write to past long gone is silently ignored
+		if input_id < last_input_id - container.size() + 1:
+			return
+
+		# Overwrite historic value from the not-so-long-ago
+		if input_id <= last_input_id:
+			container[_get_index(input_id)] = value
+			return
+
+		var new_last_input_id = input_id
+		var old_last_input_id = last_input_id
+		var old_last_value = container[last_index]
+
+		# Fill in values we have skipped between old_last_input_id and new_last_input_id.
+		# This maintains that container is tightly packed and no input_id is missing a place.
+
+		# Loop starting from self.last_index+1 up to (wrappig over) self.last_index-1
+		# for how many iterations are needed. (Leave space for last value itself).
+		var loop_iterations_count = new_last_input_id - old_last_input_id - 1
+		# Loop iteration count can not exceed size of container
+		loop_iterations_count = clamp(loop_iterations_count, 0, container.size()-1)
+
+		for i in range(loop_iterations_count):
+			last_index = wrapi(last_index + 1, 0, container.size())
+			container[last_index] = old_last_value
+
+		# Finally, write the new_last_input_id value
+		last_input_id = new_last_input_id
+		last_index = wrapi(last_index + 1, 0, container.size())
+		container[last_index] = value
+
+	# Closest index to given input_id.
+	func _get_index(input_id: int)->int:
+		input_id = int(clamp(input_id, last_input_id - container.size() + 1, last_input_id))
+		return wrapi(last_index - last_input_id + input_id, 0, container.size())
+
+	# helper to normalize negative indices
+	func relative_input_id(input_id:int)->int:
+		if input_id < 0:
+			var result = last_input_id + 1 + input_id
+			return result if result > 0 else 1
+		return input_id
+
+	# whether buffer contains value for given input_id
+	func contains(input_id: int):
+		return input_id == int(clamp(input_id, last_input_id - container.size() + 1, last_input_id))

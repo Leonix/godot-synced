@@ -1,6 +1,5 @@
 extends "res://addons/gut/test.gd"
 
-var SyncPeerResource = load("res://sync/SyncPeer.gd")
 var obj = null
 
 var sendtable1 = {
@@ -22,7 +21,7 @@ func before_all():
 	__input_frames_min_batch = SyncManager.input_frames_min_batch
 	
 func before_each():
-	obj = autofree(SyncPeerResource.new())
+	obj = autofree(SyncPeer.new())
 
 func after_each():
 	SyncManager.input_frames_min_batch = __input_frames_min_batch
@@ -110,3 +109,46 @@ func test_frame_batcher_parser6():
 	var packed_batch = obj.pack_input_batch(sendtable3, frames)
 	var frames_out = obj.parse_input_batch(sendtable3, packed_batch[0], packed_batch[1], packed_batch[2])
 	assert_eq_deep(frames, frames_out)
+
+func test_cb_get_index():
+	var prop = SyncPeer.CircularBuffer.new(4, 0)
+	assert_true(prop is Reference)
+	prop.write(11, 111.0)
+	prop.write(12, 112.0)
+	prop.write(13, 113.0)
+	prop.write(14, 114.0)
+	prop.write(15, 115.0)
+	assert_eq(15, prop.last_input_id)
+	assert_eq(112.0, prop.container[prop._get_index(11)])
+	assert_eq(115.0, prop.container[prop._get_index(16)])
+	for i in range(12, 16):
+		assert_eq(100.0+i, prop.container[prop._get_index(i)])
+
+func test_cb_fetch():
+	var prop = SyncPeer.CircularBuffer.new(10, 0.0)
+	assert_true(prop is Reference)
+	assert_eq(10, prop.container.count(0.0))
+	prop.write(12, 100.0)
+	assert_eq(100.0, prop.read(-1))
+	assert_eq(10, prop.container.size())
+	assert_eq(12, prop.last_input_id)
+	assert_eq(1, prop.container.count(100.0))
+	prop.write(15, 200.0)
+	assert_eq(100.0, prop.read(-2))
+	assert_eq(200.0, prop.read(-1))
+	assert_eq(15, prop.last_input_id)
+	assert_eq(1, prop.container.count(200.0))
+	assert_eq(3, prop.container.count(100.0))
+	assert_eq(6, prop.container.count(0.0))
+	assert_eq(200.0, prop.container[prop.last_index])
+	assert_eq(200.0, prop.read(15))
+	assert_eq(200.0, prop.read(16))
+	assert_eq(0.0, prop.read(1))
+
+func test_cb_contains():
+	var prop = SyncPeer.CircularBuffer.new(10, 0.0)
+	prop.write(12, 100.0)
+	assert_false(prop.contains(13))
+	assert_false(prop.contains(2))
+	for i in range(3, 13):
+		assert_true(prop.contains(i))

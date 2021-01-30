@@ -79,6 +79,8 @@ var last_index: int = -1
 var last_state_id: int = 0
 # state_id when value changed latst time
 var last_changed_state_id: int = 0
+# Last time SyncBase applied CSP compensation based on data that came from server
+var last_compensated_state_id: int = 0
 
 # Storage for additional meta-data.
 # Unrecognized options passed to the constructor go here.
@@ -241,6 +243,10 @@ static func _interpolate(strategy, left_state_id:int, left_value, right_state_id
 func _get_index(state_id: int)->int:
 	state_id = int(clamp(state_id, last_state_id - container.size() + 1, last_state_id))
 	return wrapi(last_index - last_state_id + state_id, 0, container.size())
+
+# Whether property contains value for given state_id
+func contains(state_id: int):
+	return state_id == int(clamp(state_id, last_state_id - container.size() + 1, last_state_id))
 
 # helper to normalize into proper range the third argument for lerp()
 static func lerpnorm(left: float, right: float, middle: float)->float:

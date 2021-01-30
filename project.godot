@@ -20,6 +20,11 @@ _global_script_classes=[ {
 "path": "res://sync/SyncInputFacade.gd"
 }, {
 "base": "Node",
+"class": "SyncPeer",
+"language": "GDScript",
+"path": "res://sync/SyncPeer.gd"
+}, {
+"base": "Node",
 "class": "SyncProperty",
 "language": "GDScript",
 "path": "res://sync/SyncProperty.gd"
@@ -27,6 +32,7 @@ _global_script_classes=[ {
 _global_script_class_icons={
 "SyncBase": "",
 "SyncInputFacade": "",
+"SyncPeer": "",
 "SyncProperty": ""
 }
 

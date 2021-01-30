@@ -75,7 +75,22 @@ var _last_received_state_id = 0
 # Microtime when _last_received_state_id was received
 var _last_received_state_mtime = 0
 
+# Used during client-side-prediction correction
+var _contains_csp_property = false
+var input_id_to_state_id = null
+
 func _ready():
+	# SyncBase that contains a CSP property need to keep track of 
+	# when each input_frame was produced
+	if SyncManager.is_client():
+		var size = 0
+		for property in get_children():
+			if property.client_side_prediction:
+				_contains_csp_property = true
+				size = property.container.size()
+				break
+		if _contains_csp_property:
+			input_id_to_state_id = SyncPeer.CircularBuffer(size, 0)
 	SyncManager.SyncBase_created(self, spawner)
 
 func _process(_delta):
@@ -125,6 +140,8 @@ func _physics_process(_delta):
 			state_id = int(should_be_current_state_id)
 		if state_id > _last_received_state_id + SyncManager.max_offline_extrapolation:
 			state_id = _last_received_state_id + SyncManager.max_offline_extrapolation
+		if input_id_to_state_id:
+			input_id_to_state_id.write(SyncManager.get_local_peer().input_id, state_id)
 
 	if SyncManager.is_server():
 		var time = OS.get_system_time_msecs()
@@ -160,15 +177,20 @@ func get_last_reliable_state_ids(peer_id=null)->Dictionary:
 # and hidden (masked) properties different for different players (!!! again)
 func send_all_data_frames():
 	
-	var can_batch = true
+	# Can not batch SyncBase objects that have at least one client-side predicted 
+	# property because data has to contain input_id which is different for peers.
+	var can_batch = _contains_csp_property
 
-	# Does this object has the same hidden (masked) status for all players?
-	# !!!
-	
-	# Do all values match for all players?
+	# Can not batch objects that have different hidden (masked) status 
+	# for different players
 	if can_batch:
 		pass # !!!
 	
+	# Can not batch objects when they seem at different state for different players
+	# (due to Time Depth)
+	if can_batch:
+		pass # !!! will probably have to prepare all data frames in advance and then compare
+
 	# If something differs, send each frame separately.
 	# If can batch, prepare data for first peer_id and send packet to everyone.
 	for peer_id in multiplayer.get_network_connected_peers():
@@ -180,6 +202,12 @@ func send_all_data_frames():
 				if SyncManager.simulate_unreliable_packet_loss_percent > 0:
 					if rand_range(0, 100) < SyncManager.simulate_unreliable_packet_loss_percent:
 						unreliable_frame = null
+
+				var last_consumed_input_id = null
+				if _contains_csp_property:
+					var peer = SyncManager.get_peer(peer_id)
+					if peer and not peer.is_stale_input():
+						last_consumed_input_id = peer.input_id
 				
 				if unreliable_frame and unreliable_frame.size() > 0:
 					#print('!!! sending unreliable frame %s (can_batch=%s) %s ' % [state_id, can_batch, unreliable_frame])
@@ -188,9 +216,9 @@ func send_all_data_frames():
 					if sendtable_ids != null:
 						sendtable_ids = PoolIntArray(data[0])
 					if can_batch:
-						rpc_unreliable('receive_data_frame', state_id, sendtable_ids, data[1])
+						rpc_unreliable('receive_data_frame', state_id, last_consumed_input_id, sendtable_ids, data[1])
 					else:
-						rpc_unreliable_id(peer_id, 'receive_data_frame', state_id, sendtable_ids, data[1])
+						rpc_unreliable_id(peer_id, 'receive_data_frame', state_id, last_consumed_input_id, sendtable_ids, data[1])
 
 				if reliable_frame and reliable_frame.size() > 0:
 					#print('!!! sending reliable frame %s (can_batch=%s) %s ' % [state_id, can_batch, reliable_frame])
@@ -199,14 +227,14 @@ func send_all_data_frames():
 					if sendtable_ids != null:
 						sendtable_ids = PoolIntArray(data[0])
 					if can_batch:
-						rpc('receive_data_frame', state_id, sendtable_ids, data[1])
+						rpc('receive_data_frame', state_id, last_consumed_input_id, sendtable_ids, data[1])
 						for peer_id2 in multiplayer.get_network_connected_peers():
 							if not peer_id2 in _peer_prop_reliable_state_ids:
 								_peer_prop_reliable_state_ids[peer_id2] = {}
 							for prop in reliable_frame:
 								_peer_prop_reliable_state_ids[peer_id2][prop] = state_id
 					else:
-						rpc_id(peer_id, 'receive_data_frame', state_id, sendtable_ids, data[1])
+						rpc_id(peer_id, 'receive_data_frame', state_id, last_consumed_input_id, sendtable_ids, data[1])
 						if not peer_id in _peer_prop_reliable_state_ids:
 							_peer_prop_reliable_state_ids[peer_id] = {}
 						for prop in reliable_frame:
@@ -261,7 +289,7 @@ func prepare_data_frame(prop_reliable_state_ids:Dictionary):
 	return [sendtable, frame_reliable, frame_unreliable]
 
 # Called via RPC, sending data from Server to all Clients.
-puppet func receive_data_frame(st_id, sendtable_ids, values):
+puppet func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, values):
 	if SyncManager.simulate_network_latency != null:
 		var delay = rand_range(SyncManager.simulate_network_latency[0], SyncManager.simulate_network_latency[1])
 		yield(get_tree().create_timer(delay), "timeout")
@@ -270,9 +298,9 @@ puppet func receive_data_frame(st_id, sendtable_ids, values):
 	for prop in sync_properties:
 		var property = sync_properties[prop]
 		if property.client_side_prediction:
-			if prop in frame:
-				SyncManager.correct_prediction_error(property, st_id, frame[prop])
-		if prop in frame:
+			if prop in frame and last_consumed_input_id:
+				correct_prediction_error(property, last_consumed_input_id, frame[prop])
+		elif prop in frame:
 			property.write(st_id, frame[prop])
 		else:
 			property.write(st_id, property._get(st_id))
@@ -332,6 +360,33 @@ static func parse_data_frame(sendtable:Array, sendtable_ids, values)->Dictionary
 			sendtable_index += 1
 		result[sendtable[sendtable_id]] = value
 	return result
+
+# Correct possible client-side prediction error once known valid server state comes
+# for an older state that we recently predicted.
+func correct_prediction_error(property:SyncProperty, input_id:int, value):
+	assert(SyncManager.is_client())
+	assert(input_id_to_state_id is SyncPeer.CircularBuffer)
+	
+	# state_id during which we locally produced input_id frame
+	if not input_id_to_state_id.contains(input_id):
+		return
+	var st_id = input_id_to_state_id.read(input_id)
+	
+	# If prediction error has been compensated at some later state_id already,
+	# don't do anything. Or if state_id too long ago in the past.
+	if property.last_compensated_state_id > st_id or not property.contains(st_id):
+		return
+	property.last_compensated_state_id = st_id
+	
+	# Compare newly confirmed `value` with previous prediction. 
+	# Difference is the prediction error.
+	var error = property._get(st_id) - value
+	
+	# Immediately subtract prediction error from all predictions, 
+	# starting from state_id up to current best predicted property value.
+	for i in range(st_id, property.last_state_id+1):
+		var v = property._get(st_id)
+		property.set(st_id, v - error)
 
 # Returns object to serve as a drop-in replacement for builtin Input to proxy
 # player input through. On server, this receives remote input over the net.

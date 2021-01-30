@@ -118,16 +118,11 @@ func _ready():
 	get_tree().connect("network_peer_disconnected", self, "_player_disconnected")
 	get_tree().connect("server_disconnected", self, "_i_disconnected")
 
-func _physics_process(_delta):
-
-	# Server: send to clients which input_id was processed in previous state_id
-	if is_server():
-		pass # !!!
-
-	# Server: update Client-owned properties of all SyncBase objects, 
-	# taking them from new input frame from each client
-	if is_server():
-		pass # !!!
+#func _physics_process(_delta):
+#	# Server: update Client-owned properties of all SyncBase objects, 
+#	# taking them from new input frame from each client
+#	if is_server():
+#		pass # !!!
 
 # Called from SyncPeer. RPC goes through this proxy rather than SyncPeer itself
 # because of differences in node path between server and client.
@@ -135,9 +130,6 @@ master func receive_input_batch(first_input_id: int, sendtable_ids: Array, node_
 	var peer = get_sender_peer()
 	if peer:
 		peer.receive_input_batch(first_input_id, sendtable_ids, node_paths, values)
-
-func correct_prediction_error(property, st_id, value):
-	[property, st_id, value] # !!!
 
 # Returns an object to read player's input through,
 # like a (limited) drop-in replacement of Godot's Input class.
@@ -155,7 +147,7 @@ func get_input_facade(peer_unique_id):
 
 # Instances of SyncBase report here upon creation
 func SyncBase_created(_sb, _spawner=null):
-	pass # !!!
+	pass # !!! will be needed for client-owned propoerties
 
 # We use a special peer_id=0 to designate local peer.
 # This saves hustle in case get_tree().multiplayer.get_network_unique_id()
@@ -189,6 +181,9 @@ func get_sender_peer():
 	var peer_id = multiplayer.get_rpc_sender_id()
 	if peer_id <= 0:
 		return null
+	return get_node(str(peer_id))
+
+func get_peer(peer_id:int):
 	return get_node(str(peer_id))
 
 func init_sync_property(p):
