@@ -268,10 +268,14 @@ puppet func receive_data_frame(st_id, sendtable_ids, values):
 	var frame = parse_data_frame(sync_properties.keys(), sendtable_ids, values)
 	#print('!!! received frame %s %s %s %s' % [st_id, sendtable_ids, values, frame])
 	for prop in sync_properties:
+		var property = sync_properties[prop]
+		if property.client_side_prediction:
+			if prop in frame:
+				SyncManager.correct_prediction_error(property, st_id, frame[prop])
 		if prop in frame:
-			sync_properties[prop].write(st_id, frame[prop])
+			property.write(st_id, frame[prop])
 		else:
-			sync_properties[prop].write(st_id, sync_properties[prop]._get(st_id))
+			property.write(st_id, property._get(st_id))
 		
 	if _last_received_state_id < st_id:
 		_last_received_state_id = st_id
@@ -362,9 +366,8 @@ func _get(prop):
 	var p = sync_properties.get(prop)
 	if p:
 		assert(p.ready_to_read(), "Attempt to read from %s:%s before any writes happened" % [get_path(), prop])
-		if not SyncManager.is_client():
+		if not SyncManager.is_client() or p.client_side_prediction or p.sync_strategy == SyncProperty.CLIENT_OWNED:
 			return p.read(-1)
-		# !!! client-side-prediction not implemented yet
 		return p.read(get_interpolation_state_id())
 
 func _set(prop, value):
@@ -373,11 +376,12 @@ func _set(prop, value):
 		assert(p.ready_to_write(), "Improperly initialized SyncProperty %s:%s" % [get_path(), prop])
 		
 		# Normal interpolated properties are only writable on Server.
-		# But we always allow the first write, even on a client.
+		# Writes to non-client-owned and non-client-side-predicted
+		# properties is silently ignored on Client.
+		# But we always allow the first initializing write, even on a client.
 		if p.ready_to_read():
 			if SyncManager.is_client():
-				# !!! client-side-prediction and client-owned-properties are not implemented yet
-				if p.sync_strategy != SyncProperty.CLIENT_OWNED:
+				if not p.client_side_prediction and p.sync_strategy != SyncProperty.CLIENT_OWNED:
 					return true
 		p.write(state_id, value)
 		return true

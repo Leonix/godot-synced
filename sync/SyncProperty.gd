@@ -62,6 +62,9 @@ export(int, 'NO_INTERPOLATION', 'LINEAR_INTERPOLATION') var missing_state_interp
 # when state_id requested from the future
 export var max_extrapolation = 15
 
+# Allow client-side predicted values for this property
+export var client_side_prediction = false
+
 # Array-like storage place for historic values.
 # This is used as a circular buffer. We keep track of last written index self.last_index,
 # and loop over when reach the end of allocated container space.
