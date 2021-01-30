@@ -1,7 +1,4 @@
 #
-# !!! make it sync
-# make it auto fill from parent after _physics_process()
-# and auto set to parent before _process()
 # !!! Property setting to update corresponding property on parent node
 # every _process() and _physics_process()
 # * will probably have to use crazy stuff like _process_internal()
@@ -248,7 +245,6 @@ func send_all_data_frames():
 				this_frame_had_data = this_frame_had_data or reliable_frame_has_data or unreliable_frame_has_data
 
 				if not drop_unreliable_frame and unreliable_frame_has_data:
-					#print('!!! sending unreliable frame %s (can_batch=%s) %s ' % [state_id, can_batch, unreliable_frame])
 					var data = pack_data_frame(sendtable, unreliable_frame)
 					var sendtable_ids = data[0]
 					if sendtable_ids != null:
@@ -268,7 +264,6 @@ func send_all_data_frames():
 					if not reliable_frame_has_data and not unreliable_frame_has_data and _last_frame_had_data:
 						reliable_frame = {} # make sure it's not null
 					
-					#print('!!! sending reliable frame %s (can_batch=%s) %s ' % [state_id, can_batch, reliable_frame])
 					var data = pack_data_frame(sendtable, reliable_frame)
 					var sendtable_ids = data[0]
 					if sendtable_ids != null:
@@ -305,12 +300,6 @@ func prepare_data_frame(prop_reliable_state_ids:Dictionary):
 	for prop in sendtable:
 		var property = sync_properties[prop]
 		
-#		print('%s !!! rel_state_id=%s shouldsend=%s ready=%s' % [prop, \
-#			prop_reliable_state_ids.get(prop, 0), 
-#			property.shouldsend(prop_reliable_state_ids.get(prop, 0)),
-#			property.ready_to_read()
-#		])
-		
 		match property.shouldsend(prop_reliable_state_ids.get(prop, 0)):
 			[SyncProperty.CLIENT_OWNED, ..],\
 			[SyncProperty.DO_NOT_SYNC, ..]:
@@ -343,7 +332,6 @@ puppet func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, val
 		var delay = rand_range(SyncManager.simulate_network_latency[0], SyncManager.simulate_network_latency[1])
 		yield(get_tree().create_timer(delay), "timeout")
 	var frame = parse_data_frame(sync_properties.keys(), sendtable_ids, values)
-	#print('!!! received frame %s %s %s %s' % [st_id, sendtable_ids, values, frame])
 	for prop in sync_properties:
 		var property = sync_properties[prop]
 		if is_csp_enabled(property):
