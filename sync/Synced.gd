@@ -165,7 +165,6 @@ func _auto_sync_from_parent(property):
 	
 func _auto_sync_to_parent(property):
 	assert(property.auto_sync_property)
-	if property.debug_log: print('autosync_to_parent') # !!!
 	get_parent().set(property.auto_sync_property, self._get(property.name))
 
 func setup_auto_update_parent():
@@ -503,7 +502,7 @@ func get_state_id():
 
 func get_interpolation_state_id():
 	assert(SyncManager.is_client())
-	return get_state_id_frac() - SyncManager.client_interpolation_lag
+	return max(1, get_state_id_frac() - SyncManager.client_interpolation_lag)
 
 func set_belongs_to_peer_id(peer_id):
 	if peer_id != 0 and peer_id == multiplayer.get_network_unique_id():
