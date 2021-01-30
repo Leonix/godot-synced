@@ -60,8 +60,28 @@ var _mtime_when_send_next_frame = 0.0
 # Remember per-peer and per-property when did we last sent a reliable state_id to them
 var _peer_prop_reliable_state_ids = {}
 
+# Last World State id that has been captured.
+var state_id = 1 setget set_state_id, get_state_id
+
+# Last World State id that has been captured.
+var state_id_frac setget , get_state_id_frac
+
+# Shenanigans needed to calculate state_id_frac
+var _state_id_frac_fix = 0.0
+var _first_process_since_physics_process = true
+
 func _ready():
 	SyncManager.SyncBase_created(self, spawner)
+
+func _process(_delta):
+	if _first_process_since_physics_process:
+		if SyncManager.state_id_frac_to_integer_reduction > 0:
+			_state_id_frac_fix = move_toward(
+				_state_id_frac_fix, 
+				Engine.get_physics_interpolation_fraction(), 
+				SyncManager.state_id_frac_to_integer_reduction
+			)
+			_first_process_since_physics_process = false
 
 func prepare_sync_properties():
 	var result = {}
@@ -89,6 +109,11 @@ func prepare_sync_properties():
 	return result
 
 func _physics_process(_delta):
+	
+	# Increment global state time
+	state_id += 1
+	_first_process_since_physics_process = true
+	
 	if SyncManager.is_server():
 		var time = OS.get_system_time_msecs()
 		if _mtime_when_send_next_frame <= time:
@@ -145,35 +170,35 @@ func send_all_data_frames():
 						unreliable_frame = null
 				
 				if unreliable_frame and unreliable_frame.size() > 0:
-					#print('!!! sending unreliable frame %s (can_batch=%s) %s ' % [SyncManager.state_id, can_batch, unreliable_frame])
+					#print('!!! sending unreliable frame %s (can_batch=%s) %s ' % [state_id, can_batch, unreliable_frame])
 					var data = pack_data_frame(sendtable, unreliable_frame)
 					var sendtable_ids = data[0]
 					if sendtable_ids != null:
 						sendtable_ids = PoolIntArray(data[0])
 					if can_batch:
-						rpc_unreliable('receive_data_frame', SyncManager.state_id, sendtable_ids, data[1])
+						rpc_unreliable('receive_data_frame', state_id, sendtable_ids, data[1])
 					else:
-						rpc_unreliable_id(peer_id, 'receive_data_frame', SyncManager.state_id, sendtable_ids, data[1])
+						rpc_unreliable_id(peer_id, 'receive_data_frame', state_id, sendtable_ids, data[1])
 
 				if reliable_frame and reliable_frame.size() > 0:
-					#print('!!! sending reliable frame %s (can_batch=%s) %s ' % [SyncManager.state_id, can_batch, reliable_frame])
+					#print('!!! sending reliable frame %s (can_batch=%s) %s ' % [state_id, can_batch, reliable_frame])
 					var data = pack_data_frame(sendtable, reliable_frame)
 					var sendtable_ids = data[0]
 					if sendtable_ids != null:
 						sendtable_ids = PoolIntArray(data[0])
 					if can_batch:
-						rpc('receive_data_frame', SyncManager.state_id, sendtable_ids, data[1])
+						rpc('receive_data_frame', state_id, sendtable_ids, data[1])
 						for peer_id2 in multiplayer.get_network_connected_peers():
 							if not peer_id2 in _peer_prop_reliable_state_ids:
 								_peer_prop_reliable_state_ids[peer_id2] = {}
 							for prop in reliable_frame:
-								_peer_prop_reliable_state_ids[peer_id2][prop] = SyncManager.state_id
+								_peer_prop_reliable_state_ids[peer_id2][prop] = state_id
 					else:
-						rpc_id(peer_id, 'receive_data_frame', SyncManager.state_id, sendtable_ids, data[1])
+						rpc_id(peer_id, 'receive_data_frame', state_id, sendtable_ids, data[1])
 						if not peer_id in _peer_prop_reliable_state_ids:
 							_peer_prop_reliable_state_ids[peer_id] = {}
 						for prop in reliable_frame:
-							_peer_prop_reliable_state_ids[peer_id][prop] = SyncManager.state_id
+							_peer_prop_reliable_state_ids[peer_id][prop] = state_id
 		# When data for all peers match, we're done after the first loop iteration
 		if can_batch:
 			return
@@ -224,14 +249,14 @@ func prepare_data_frame(prop_reliable_state_ids:Dictionary):
 	return [sendtable, frame_reliable, frame_unreliable]
 
 # Called via RPC, sending data from Server to all Clients.
-puppet func receive_data_frame(state_id, sendtable_ids, values):
+puppet func receive_data_frame(st_id, sendtable_ids, values):
 	if SyncManager.simulate_network_latency != null:
 		var delay = rand_range(SyncManager.simulate_network_latency[0], SyncManager.simulate_network_latency[1])
 		yield(get_tree().create_timer(delay), "timeout")
 	var frame = parse_data_frame(sync_properties.keys(), sendtable_ids, values)
-	#print('!!! received frame %s %s %s %s' % [state_id, sendtable_ids, values, frame])
+	#print('!!! received frame %s %s %s %s' % [st_id, sendtable_ids, values, frame])
 	for prop in frame:
-		sync_properties[prop].write(state_id, frame[prop])
+		sync_properties[prop].write(st_id, frame[prop])
 
 # Tightly pack data frame before sending
 # `sendtable` is an Array of Property names (strings) used to encode values.
@@ -297,15 +322,28 @@ func get_input():
 func is_local_peer():
 	return belongs_to_peer_id == 0
 
+# Getters and setters
+func get_state_id_frac():
+	if Engine.is_in_physics_frame():
+		return float(state_id)
+	var result = Engine.get_physics_interpolation_fraction() - _state_id_frac_fix
+	result = clamp(result, 0.0, 0.99)
+	return result + state_id
+
+func set_state_id(_value):
+	pass # read-only
+func get_state_id():
+	return state_id
+
 func default_read_state_id():
-	# !!! TODO implement interpolation on client
-	if SyncManager.is_client():
-		return -1
-	else:
+	if not SyncManager.is_client():
 		return -1
 
+	# !!! TODO implement interpolation on client
+	return -1
+
 func default_write_state_id():
-	return SyncManager.state_id
+	return state_id
 
 func _get(prop):
 	var p = sync_properties.get(prop)

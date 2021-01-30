@@ -13,18 +13,42 @@ extends Node
 # Configuration constants
 #
 
+#
+# Example net config of calculation.
+# * All assuming Engine.iterations_per_second=60
+# * Design goal is smooth interpolation that can tolerate 1 frame of packet loss.
+# * Suppose we want server_sendrate = 20. Server sends state every 3 frames.
+# * If 1 packet is lost, client will have to cope with a 'hole' of 6 frames 
+#   with no data from server.
+# * This is compensated by Client Interpolation. Therefore,
+#       client_interpolation_lag = 6
+#   (which is 0.1 sec)
+# * client_interpolation_history_size has to exceed client_interpolation_lag.
+#        = 7
+# * Another example. Suppose we have resources send more data from server.
+#       server_sendrate = 30 # instead of 20
+# * In case of 1 frame of packet loss client now has a 'hole' of 4 frames.
+#       client_interpolation_lag = 4
+# * client_interpolation_history_size = 5
+# * That said, it's perfectly fine to drop a design goal of perfectly smooth
+#   interpolation in case of packet loss. You can sacrifice smoothness
+#   and decrease client_interpolation_lag lower.
+
+# Client will intentionally lag behind last known server state for this many state_ids,
+# rendering game world slightly in the past.
+# This allows for smooth interpolation between two server states.
+# This should be set so that interpolation can proceed even when one frame of
+# network data from server gets dropped. This should be a hardcoded setting
+# and should be equal between client and server.
+# I.e. Engine.iterations_per_second * 2 / server_sendrate
+var client_interpolation_lag = 6
+
 # How long (in state_ids) should history be for each interpolated property on a client.
-# Client stores history of all interpolated properties in order to render game world
-# slightly in the past. This should tolerage one network packet drop.
-# I.e. if sampling 60 state_ids per second, network send to each client is
-# 30 times a second, means packet drop loses 2 state_ids, therefore 
-# this should be at least 4. 5 looks like a decent default.
-# Changing this will only affect newly created SyncBases. 
-# Only change before scene is loaded.
-var client_interpolated_property_history_size = 5
+# This must exceed client_interpolation_lag.
+var client_interpolation_history_size = 8
 
 # How many times per second to send property values from Server to Client.
-var server_sendrate = 30
+var server_sendrate = 20
 
 # How long (in state_ids) should history be for each property on a server.
 # This determines max lag-compensation span and max time depth.
@@ -33,8 +57,8 @@ var server_sendrate = 30
 var server_property_history_size = 60
 
 # How many times per second to send batches of input frames from client on server.
-# Client samples input every _physics_process() (that is, at a rate of Engine.iterations_per_second)
-# and buffers sampled frames. Client sends batches to Server at this rate.
+# Client samples at a rate of Engine.iterations_per_second and buffers sampled frames.
+# Client sends batches to Server at this rate.
 var input_sendrate = 30
 
 # Batch size when sending input frames. This number of frames is sent at input_sendrate.
@@ -54,12 +78,6 @@ var input_frames_history_size = 5
 # Reasonable value allows to tolerate 1-2 input packets go missing.
 var input_prediction_max_frames = 4
 
-# Last World State id that has been captured.
-var state_id = 1 setget set_state_id, get_state_id
-
-# Last World State id that has been captured.
-var state_id_frac setget , get_state_id_frac
-
 # We want first call to _process() after _physics_process() 
 # to see integer state_id_frac. But we don't want to interfere
 # too much with regularity of state_id_frac. The greater this setting is,
@@ -73,10 +91,6 @@ var state_id_frac_to_integer_reduction = 0.04
 #
 # Private vars zone
 #
-
-# Shenanigans needed to calculate state_id_frac
-var _state_id_frac_fix = 0.0
-var _first_process_since_physics_process = true
 
 # Used to control rate of sending input from client to server
 var _mtime_last_input_batch_sent = 0.0
@@ -108,22 +122,12 @@ func _ready():
 	get_tree().connect("network_peer_disconnected", self, "_player_disconnected")
 	get_tree().connect("server_disconnected", self, "_i_disconnected")
 
-func _process(_delta):
-	if _first_process_since_physics_process:
-		if state_id_frac_to_integer_reduction > 0:
-			_state_id_frac_fix = move_toward(_state_id_frac_fix, Engine.get_physics_interpolation_fraction(), state_id_frac_to_integer_reduction)
-			_first_process_since_physics_process = false
-
 func _physics_process(_delta):
 
 	# Server: send previous World State to clients
 	if is_server():
 		pass # !!!
 
-	# Increment global state time
-	state_id += 1
-	_first_process_since_physics_process = true
-	
 	# Build new Input frame
 	sample_input()
 
@@ -220,7 +224,8 @@ static func pack_input_batch(sendtable, frames):
 	#  - contains NodePaths relative to `get_tree().current_scene`
 	#  - after each nodepath empty string is repeated for each additional 
 	#    property beyond first from this nodepath
-	# (3) Then Array (untyped) of zero or more Arrays (untyped), one for each state_id in batch.
+	# (3) Then Array (untyped) of zero or more Arrays (untyped), one array
+	#     for each input_id in batch. Each array contains:
 	#   - (3.1) All boolean values from sendtables (several ints)
 	#     May be missing entirely.
 	#   - (3.2) All float values from sendtables (one packed array of floats)
@@ -399,7 +404,7 @@ func get_sender_peer():
 
 func init_sync_property(p):
 	if is_client():
-		p.resize(client_interpolated_property_history_size)
+		p.resize(client_interpolation_history_size)
 	else:
 		p.resize(server_property_history_size)
 	return p
@@ -421,16 +426,3 @@ func _player_disconnected(peer_id=null):
 
 func _i_disconnected():
 	_is_connected_to_server = false
-
-# Getters and setters
-func get_state_id_frac():
-	if Engine.is_in_physics_frame():
-		return float(state_id)
-	var result = Engine.get_physics_interpolation_fraction() - _state_id_frac_fix
-	result = clamp(result, 0.0, 0.99)
-	return result + state_id
-
-func set_state_id(_value):
-	pass # read-only
-func get_state_id():
-	return state_id
