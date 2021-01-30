@@ -10,11 +10,6 @@ config_version=4
 
 _global_script_classes=[ {
 "base": "Node",
-"class": "SyncBase",
-"language": "GDScript",
-"path": "res://sync/SyncBase.gd"
-}, {
-"base": "Node",
 "class": "SyncInputFacade",
 "language": "GDScript",
 "path": "res://sync/SyncInputFacade.gd"
@@ -28,12 +23,17 @@ _global_script_classes=[ {
 "class": "SyncProperty",
 "language": "GDScript",
 "path": "res://sync/SyncProperty.gd"
+}, {
+"base": "Node",
+"class": "Synced",
+"language": "GDScript",
+"path": "res://sync/Synced.gd"
 } ]
 _global_script_class_icons={
-"SyncBase": "",
 "SyncInputFacade": "",
 "SyncPeer": "",
-"SyncProperty": ""
+"SyncProperty": "",
+"Synced": ""
 }
 
 [application]

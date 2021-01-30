@@ -5,7 +5,7 @@
 [ext_resource path="res://playground/pong/paddle.tscn" type="PackedScene" id=3]
 [ext_resource path="res://playground/pong/ball.tscn" type="PackedScene" id=4]
 [ext_resource path="res://sync/SyncProperty.gd" type="Script" id=5]
-[ext_resource path="res://sync/SyncBase.gd" type="Script" id=6]
+[ext_resource path="res://sync/Synced.gd" type="Script" id=6]
 
 [node name="Pong" type="Node2D"]
 script = ExtResource( 1 )

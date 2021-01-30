@@ -142,7 +142,7 @@ func receive_input_batch(first_input_id: int, sendtable_ids: Array, node_paths: 
 static func pack_input_batch(sendtable, frames):
 	#
 	# (1) All mentioned sendtable entries (one packed array of ints)
-	# (2) All mentioned SyncBases (one packed array of strings)
+	# (2) All mentioned Synced node paths (one packed array of strings)
 	#  - contains NodePaths relative to `get_tree().current_scene`
 	#  - after each nodepath empty string is repeated for each additional 
 	#    property beyond first from this nodepath
@@ -152,7 +152,7 @@ static func pack_input_batch(sendtable, frames):
 	#     May be missing entirely.
 	#   - (3.2) All float values from sendtables (one packed array of floats)
 	#     May be missing if no floats and no (3.3) are to be sent.
-	#   - (3.3) All SyncBase values (several entries, one per string in (2))
+	#   - (3.3) All Synced values (several entries, one per string in (2))
 	#     May be missing if no client-owned values are to be sent.
 	#
 
@@ -301,7 +301,7 @@ func is_local():
 
 # Maps input_id to values, up to buffer size.
 # In case of SyncPeer, values are Dictionaries with input data.
-# This is also used in SyncBase to map input_ids to state_ids
+# This is also used in Synced to map input_ids to state_ids
 class CircularBuffer:
 
 	# Storage place for historic values.

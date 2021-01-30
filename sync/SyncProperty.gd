@@ -1,5 +1,5 @@
 #
-# Stores history of values of a single property of a SyncBase over a period
+# Stores history of values of a single property of a Synced over a period
 # of consecutive integer state_ids.
 # Allows to interpolate in between stored values, as well as extrapolate
 # for some time into the future.
@@ -67,7 +67,7 @@ enum {
 	# Client-Side Prediction is disabled
 	NO_CSP,
 	
-	# Only enable CSP if SyncBase belongs to local peer
+	# Only enable CSP if Synced belongs to local peer
 	IF_BELONGS_TO_LOCAL_PEER_CSP,
 	
 	# Always enable Client-Side-Prediction
@@ -90,7 +90,7 @@ var last_index: int = -1
 var last_state_id: int = 0
 # state_id when value changed latst time
 var last_changed_state_id: int = 0
-# Last time SyncBase applied CSP compensation based on data that came from server
+# Last time Synced applied CSP compensation based on data that came from server
 var last_compensated_state_id: int = 0
 # Prints all successfull writes to this to console
 export var debug_log = false
@@ -266,7 +266,7 @@ static func lerpnorm(left: float, right: float, middle: float)->float:
 	assert(right > left)
 	return (middle - left) / (right - left)
 
-# SyncBase must specify buffer size for each property depending on client/server state
+# Synced must specify buffer size for each property depending on client/server state
 # and other property settings
 func resize(new_size):
 	assert(last_index < 0, "Attempt to resize a non-empty SyncProperty")

@@ -5,10 +5,10 @@
 #
 
 extends Node
-class_name SyncBase
+class_name Synced
 
 # 
-# SyncBase is the main workhorse if the library.
+# `Synced` is the main workhorse if the library.
 # - It acts as data storage container to read from and write to in Game Code scripts.
 # - If instanced on server, it automatically creates corresponding scene on Clients.
 #   !!! not implemented yet
@@ -16,11 +16,11 @@ class_name SyncBase
 # - It stores a history of values for everything it syncs.
 # - It acts as a proxy for player input, see `get_input()` and `belongs_to_peer_id`
 #
-# SyncBase is designed to parent one or more SyncProperty child nodes.
+# `Synced` is designed to parent one or more SyncProperty child nodes.
 # Each SyncProperty child becomes a property (field) on this object accessible
 # as normal property. For example, consider the following scene:
 #     Player (Player.gd extends Node)
-#     Player/synced (SyncBase)
+#     Player/synced (Synced)
 #     Player/synced/position (SyncProperty)
 # Then, code in Player.gd may read and write position (both on client and server)
 # as follows:
@@ -40,7 +40,7 @@ var belongs_to_peer_id = null setget set_belongs_to_peer_id
 
 # Should be set by whoever instanced scene containing this before attaching to scene tree.
 # Affects how Client-Side-Predicted new entities locate their Server counterparts.
-var spawner: SyncBase = null # !!! CSP-created nodes are not implemented yet
+var spawner: Synced = null # !!! CSP-created nodes are not implemented yet
 
 # Input facade to read player's input through instead of builtin Input
 var input setget ,get_input
@@ -76,15 +76,15 @@ var _last_received_state_mtime = 0
 var _contains_csp_property = false
 var input_id_to_state_id = null
 
-# Server: true if last time this SyncBase sent to clients, frame contained at least one value.
+# Server: true if last time this Synced sent to clients, frame contained at least one value.
 # Client: true if last time we received from server, frame contained at least one value.
 var _last_frame_had_data = true
 
 func _ready():
 	update_csp_status()
-	SyncManager.SyncBase_created(self, spawner)
+	SyncManager.synced_created(self, spawner)
 
-# SyncBase that contains a CSP property need to keep track of 
+# Synced that contains a CSP property need to keep track of 
 # when each input_frame was produced
 func update_csp_status():
 	var size = 0
@@ -123,7 +123,7 @@ func prepare_sync_properties():
 	var add_later = []
 	var add_last = []
 	for property in get_children():
-		assert(property is SyncProperty, 'All children of SyncBase must be SyncProperty (looking at you, %s)' % property.name)
+		assert(property is SyncProperty, 'All children of Synced must be SyncProperty (looking at you, %s)' % property.name)
 		if not property.ready_to_write():
 			SyncManager.init_sync_property(property)
 			match property.sync_strategy:
@@ -196,16 +196,16 @@ func get_last_reliable_state_ids(peer_id=null)->Dictionary:
 					props[prop] = other_props[prop]
 	return props
 
-# Send to all clients values of properties belonging to this SyncBase.
-# SyncBase sends to all players the same time (but different SyncBases may still
+# Send to all clients values of properties belonging to this Synced.
+# Synced sends to all players the same time (but different Synced objects may still
 # send at different state_ids).
-# If at all possible, SyncBase tries to send to all players the same data
+# If at all possible, Synced tries to send to all players the same data
 # to save CPU cycles on data encoding. This may not always be possible
 # due to Time Depth calculations (!!! not implemented yet)
 # and hidden (masked) properties different for different players (!!! again)
 func send_all_data_frames():
 	
-	# Can not batch SyncBase objects that have at least one client-side predicted 
+	# Can not batch Synced objects that have at least one client-side predicted 
 	# property because data has to contain input_id which is different for peers.
 	var can_batch = _contains_csp_property
 

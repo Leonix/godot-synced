@@ -52,7 +52,7 @@ var server_sendrate = 20
 
 # How long (in state_ids) should history be for each property on a server.
 # This determines max lag-compensation span and max time depth.
-# Changing this will only affect newly created SyncBases. 
+# Changing this will only affect newly created Synced objects.
 # Only change before scene is loaded.
 var server_property_history_size = 60
 
@@ -119,7 +119,7 @@ func _ready():
 	get_tree().connect("server_disconnected", self, "_i_disconnected")
 
 #func _physics_process(_delta):
-#	# Server: update Client-owned properties of all SyncBase objects, 
+#	# Server: update Client-owned properties of all Synced objects, 
 #	# taking them from new input frame from each client
 #	if is_server():
 #		pass # !!!
@@ -145,8 +145,8 @@ func get_input_facade(peer_unique_id):
 		return SyncInputFacade.FakeInputFacade.new()
 	return get_node("%s/SyncInputFacade" % peer_unique_id)
 
-# Instances of SyncBase report here upon creation
-func SyncBase_created(_sb, _spawner=null):
+# Instances of Synced report here upon creation
+func synced_created(_sb, _spawner=null):
 	pass # !!! will be needed for client-owned propoerties
 
 # We use a special peer_id=0 to designate local peer.
