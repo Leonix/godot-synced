@@ -1,6 +1,6 @@
 extends "res://addons/gut/test.gd"
 
-var SyncManagerResource = null
+var SyncPeerResource = load("res://sync/SyncPeer.gd")
 var obj = null
 
 var sendtable1 = {
@@ -19,20 +19,13 @@ var sendtable3 = {
 var __input_frames_min_batch
 
 func before_all():
-	SyncManagerResource = load("res://sync/SyncManager.gd")
 	__input_frames_min_batch = SyncManager.input_frames_min_batch
 	
 func before_each():
-	obj = SyncManagerResource.new()
+	obj = autofree(SyncPeerResource.new())
 
 func after_each():
-	if obj:
-		obj.free()
-	obj = null
 	SyncManager.input_frames_min_batch = __input_frames_min_batch
-
-func after_all():
-	SyncManagerResource = null
 
 func test_frame_batcher_parser1():
 	var frames = [{

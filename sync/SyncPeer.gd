@@ -43,6 +43,7 @@ var _mtime_last_input_batch_sent = 0.0
 
 func _init():
 	storage.resize(SyncManager.input_frames_history_size)
+	add_child(storage)
 
 func _physics_process(_delay):
 	if is_local():
