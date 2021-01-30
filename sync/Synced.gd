@@ -1,9 +1,3 @@
-#
-# !!! Property setting to update corresponding property on parent node
-# every _process() and _physics_process()
-# * will probably have to use crazy stuff like _process_internal()
-#
-
 extends Node
 class_name Synced
 
@@ -80,12 +74,110 @@ var input_id_to_state_id = null
 # Client: true if last time we received from server, frame contained at least one value.
 var _last_frame_had_data = true
 
+# True is there's at least one property that requires to sync directly to parent
+var _should_auto_update_parent = false
+
 func _ready():
 	update_csp_status()
+	setup_auto_update_parent()
 	SyncManager.synced_created(self, spawner)
 
-# Synced that contains a CSP property need to keep track of 
-# when each input_frame was produced
+func _process(_delta):
+	# try to make first call to _process() after _physics_process()
+	# always give integer state_id_frac
+	if _first_process_since_physics_process and SyncManager.state_id_frac_to_integer_reduction > 0:
+		_first_process_since_physics_process = false
+		_state_id_frac_fix = move_toward(
+			_state_id_frac_fix, 
+			Engine.get_physics_interpolation_fraction(), 
+			SyncManager.state_id_frac_to_integer_reduction
+		)
+
+# We use process_internal to update parent node just before its _process() runs.
+# Only runs on Client if at least one auto-synced property is found.
+func _notification(what):
+	if what == NOTIFICATION_INTERNAL_PROCESS:
+		_auto_sync_all_to_parent()
+
+func _physics_process(_delta):
+	# _physics_process() of child nodes runs after parent node.
+	# Copy data from parent if set up to do so
+	if _should_auto_update_parent and not SyncManager.is_client():
+		for property in get_children():
+			if property.auto_sync_property != '':
+				_auto_sync_from_parent(property)
+
+	# Increment global state time
+	state_id += 1
+	_first_process_since_physics_process = true
+	if SyncManager.is_client():
+		if _last_frame_had_data:
+			# This scary block figures out if client should skip some state_ids
+			# or wait and render state_id two times in a row. This is needed in case
+			# of clock desync between client and server, or short network failure.
+			var mtime_since_last_update = OS.get_system_time_msecs() - _last_received_state_mtime
+			var should_be_current_state_id = _last_received_state_id + mtime_since_last_update / 1000.0 * Engine.iterations_per_second
+			if abs(should_be_current_state_id - state_id) >= 2:
+				state_id = int(should_be_current_state_id)
+			if state_id > _last_received_state_id + SyncManager.max_offline_extrapolation:
+				state_id = _last_received_state_id + SyncManager.max_offline_extrapolation
+			if input_id_to_state_id:
+				input_id_to_state_id.write(SyncManager.get_local_peer().input_id, state_id)
+		else:
+			# Last time we received an empty frame from Server.
+			# It means that no values changed and likely will not change soon.
+			# We're allowed to extrapolate this last known state into the future
+			# as if we receive it from server each frame.
+			for prop in sync_properties:
+				var property = sync_properties[prop]
+				if is_csp_enabled(property):
+					pass # can't correct prediction errors though
+				else:
+					if property.debug_log: print('ext_emp_f')
+					property.write(state_id, property._get(-1))
+
+	# Send data frame fromo server to clients if time has come
+	if SyncManager.is_server():
+		var time = OS.get_system_time_msecs()
+		if _mtime_when_send_next_frame <= time:
+			var delay = int(1000 / SyncManager.server_sendrate)
+			if time - _mtime_when_send_next_frame > delay:
+				_mtime_when_send_next_frame = time + delay
+			else:
+				_mtime_when_send_next_frame += delay
+			send_all_data_frames()
+
+func _auto_sync_all_to_parent():
+	assert(not SyncManager.is_server())
+	for property in get_children():
+		if property.auto_sync_property != '':
+			if property.ready_to_read():
+				_auto_sync_to_parent(property)
+
+func _auto_sync_from_parent(property):
+	assert(property.auto_sync_property)
+	var value = get_parent().get(property.auto_sync_property)
+	# SyncedProperties do not support null values because trying to
+	# return them from _get() makes parent class to look it up instead
+	assert(value != null, "SyncedProperties do not support null values")
+	if property.debug_log: print('autosync_from_parent')
+	self._set(property.name, value)
+	
+func _auto_sync_to_parent(property):
+	assert(property.auto_sync_property)
+	if property.debug_log: print('autosync_to_parent') # !!!
+	get_parent().set(property.auto_sync_property, self._get(property.name))
+
+func setup_auto_update_parent():
+	_should_auto_update_parent = false
+	for property in get_children():
+		if property.auto_sync_property != '':
+			_should_auto_update_parent = true
+			break
+	if not SyncManager.is_server():
+		set_process_internal(_should_auto_update_parent)
+
+# CSP properties need to keep track of when each input_frame was produced
 func update_csp_status():
 	var size = 0
 	_contains_csp_property = false
@@ -100,23 +192,13 @@ func update_csp_status():
 		input_id_to_state_id = null
 
 # Whether client-side prediction is enabled for given property.
-# This properly resolves SyncedProperty.IF_BELONGS_TO_LOCAL_PEER_CSP
+# This resolves SyncedProperty.IF_BELONGS_TO_LOCAL_PEER_CSP
 func is_csp_enabled(property:SyncedProperty)->bool:
 	if property.client_side_prediction == SyncedProperty.ALWAYS_CSP:
 		return true
 	if property.client_side_prediction == SyncedProperty.IF_BELONGS_TO_LOCAL_PEER_CSP and is_local_peer():
 		return true
 	return false
-
-func _process(_delta):
-	if _first_process_since_physics_process:
-		if SyncManager.state_id_frac_to_integer_reduction > 0:
-			_state_id_frac_fix = move_toward(
-				_state_id_frac_fix, 
-				Engine.get_physics_interpolation_fraction(), 
-				SyncManager.state_id_frac_to_integer_reduction
-			)
-			_first_process_since_physics_process = false
 
 func prepare_sync_properties():
 	var result = {}
@@ -143,46 +225,9 @@ func prepare_sync_properties():
 		result[property.name] = property
 	return result
 
-func _physics_process(_delta):
-	
-	# Increment global state time
-	state_id += 1
-	_first_process_since_physics_process = true
-	if SyncManager.is_client():
-		if not _last_frame_had_data:
-			# Last time we received an empty frame.
-			# It means that no values changed and likely will not change soon.
-			# We're allowed to extrapolate this last known state into the future
-			# as if we receive it from server each frame.
-			for prop in sync_properties:
-				var property = sync_properties[prop]
-				if is_csp_enabled(property):
-					pass # can't correct prediction errors though
-				else:
-					if property.debug_log: print('ext_emp_f')
-					property.write(state_id, property._get(-1))
-		else:
-			var mtime_since_last_update = OS.get_system_time_msecs() - _last_received_state_mtime
-			var should_be_current_state_id = _last_received_state_id + mtime_since_last_update / 1000.0 * Engine.iterations_per_second
-			if abs(should_be_current_state_id - state_id) >= 2:
-				state_id = int(should_be_current_state_id)
-			if state_id > _last_received_state_id + SyncManager.max_offline_extrapolation:
-				state_id = _last_received_state_id + SyncManager.max_offline_extrapolation
-			if input_id_to_state_id:
-				input_id_to_state_id.write(SyncManager.get_local_peer().input_id, state_id)
-
-	if SyncManager.is_server():
-		var time = OS.get_system_time_msecs()
-		if _mtime_when_send_next_frame <= time:
-			var delay = int(1000 / SyncManager.server_sendrate)
-			if time - _mtime_when_send_next_frame > delay:
-				_mtime_when_send_next_frame = time + delay
-			else:
-				_mtime_when_send_next_frame += delay
-			send_all_data_frames()
-
-# Pessimistic selection of state_ids last reliably sent to given player (or all players).
-# Do not midify Dict returned, make a copy if needed.
+# Dictionary {property_name = state_id} with state_ids last reliably sent
+# to given player (or all players).
+# Do not modify Dict returned, make a copy if needed.
 func get_last_reliable_state_ids(peer_id=null)->Dictionary:
 	if peer_id:
 		return _peer_prop_reliable_state_ids.get(peer_id, {})
@@ -326,7 +371,7 @@ func prepare_data_frame(prop_reliable_state_ids:Dictionary):
 
 	return [sendtable, frame_reliable, frame_unreliable]
 
-# Called via RPC, sending data from Server to all Clients.
+# Called via RPC from Server, executes on Clients. Communicates property values.
 puppet func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, values):
 	if SyncManager.simulate_network_latency != null:
 		var delay = rand_range(SyncManager.simulate_network_latency[0], SyncManager.simulate_network_latency[1])
@@ -401,8 +446,8 @@ static func parse_data_frame(sendtable:Array, sendtable_ids, values)->Dictionary
 		result[sendtable[sendtable_id]] = value
 	return result
 
-# Correct possible client-side prediction error once known valid server state comes
-# for an older state that we recently predicted.
+# Correct client-side prediction made some time ago for an older state
+# once known valid server state comes delayed by network.
 func correct_prediction_error(property:SyncedProperty, input_id:int, value):
 	assert(SyncManager.is_client())
 	assert(input_id_to_state_id is SyncPeer.CircularBuffer)
@@ -440,6 +485,9 @@ func get_input():
 func is_local_peer():
 	return belongs_to_peer_id == 0
 
+func synced_property(name:String)->SyncedProperty:
+	return sync_properties.get(name)
+
 # Getters and setters
 func get_state_id_frac():
 	if Engine.is_in_physics_frame():
@@ -458,7 +506,7 @@ func get_interpolation_state_id():
 	return get_state_id_frac() - SyncManager.client_interpolation_lag
 
 func set_belongs_to_peer_id(peer_id):
-	if peer_id == multiplayer.get_network_unique_id():
+	if peer_id != 0 and peer_id == multiplayer.get_network_unique_id():
 		peer_id = 0
 	var should_update_csp = belongs_to_peer_id == null
 	if not should_update_csp:
@@ -473,6 +521,9 @@ func set_belongs_to_peer_id(peer_id):
 func _get(prop):
 	var p = sync_properties.get(prop)
 	if p:
+		if not p.ready_to_read() and p.auto_sync_property != '':
+			if p.debug_log: print('autosync_init')
+			_auto_sync_from_parent(p)
 		assert(p.ready_to_read(), "Attempt to read from %s:%s before any writes happened" % [get_path(), prop])
 		if not SyncManager.is_client() or is_csp_enabled(p) or p.sync_strategy == SyncedProperty.CLIENT_OWNED:
 			return p.read(-1)

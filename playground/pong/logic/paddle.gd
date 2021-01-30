@@ -10,11 +10,7 @@ var _you_hidden = false
 onready var _screen_size_y = get_viewport_rect().size.y
 onready var synced = $synced
 
-func _ready():
-	synced.position = self.position
-
 func _process(_delta):
-	self.position = synced.position
 	# Hide label instantly for another person's paddle, or after a move for your paddle.
 	if not _you_hidden:
 		if _motion != 0 or not synced.is_local_peer():
@@ -23,7 +19,7 @@ func _process(_delta):
 func _physics_process(delta):
 	_motion = synced.input.get_action_strength("move_down") - synced.input.get_action_strength("move_up")
 	_motion *= MOTION_SPEED
-	synced.position.y = clamp(synced.position.y + _motion * delta, 16, _screen_size_y - 16)
+	position.y = clamp(position.y + _motion * delta, 16, _screen_size_y - 16)
 
 func _hide_you_label():
 	_you_hidden = true

@@ -94,6 +94,13 @@ var last_changed_state_id: int = 0
 var last_compensated_state_id: int = 0
 # Prints all successfull writes to this to console
 export var debug_log = false
+# When set, Synced will write to this SyncedProperty after each _physics_process()
+# and _process() on Server, taking data from proeprty with given name on Synced parent;
+# and will read from it before each _physics_process() and _process() on Client,
+# writing to corresponding property on parent node of Synced.
+# Basically this directly syncs given property on Synced parent node.
+# Useful for `position` and such.
+export var auto_sync_property = ''
 # Storage for additional meta-data.
 # Unrecognized options passed to the constructor go here.
 export var meta: Dictionary

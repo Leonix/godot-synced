@@ -25,3 +25,4 @@ script = ExtResource( 3 )
 sync_strategy = 2
 interpolation = 1
 missing_state_interpolation = 1
+auto_sync_property = "position"
