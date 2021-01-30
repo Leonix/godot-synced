@@ -83,6 +83,9 @@ export(int, 'NO_CSP', 'IF_BELONGS_TO_LOCAL_PEER_CSP', 'ALWAYS_CSP') var client_s
 # The earliest value we know is always at `self.last_index+1` (possibly loop over),
 # and the earliest value always corresponds to `self.last_state_id - container.size() + 1`
 var container: Array
+# Array of booleans same length as container, this marks state_ids that 
+# we deduced in between valid server data.
+var is_interpolated: Array
 # Index in self.container that contains data for the most recent state_id
 # -1 here means the property has never been written to yet.
 var last_index: int = -1
@@ -108,6 +111,7 @@ export var meta: Dictionary
 func _init(options: Dictionary = {}):
 	meta = {}
 	container = []
+	is_interpolated = []
 	for k in options:
 		if is_valid_option(k):
 			self.set(k, options[k])
@@ -175,6 +179,7 @@ func write(state_id: int, value):
 		last_state_id = state_id
 		last_changed_state_id = last_state_id
 		for i in range(container.size()):
+			is_interpolated[i] = false
 			container[i] = value
 		return
 	
@@ -184,7 +189,10 @@ func write(state_id: int, value):
 
 	# Overwrite historic value from the not-so-long-ago
 	if state_id <= last_state_id:
-		container[_get_index(state_id)] = value
+		var idx = _get_index(state_id)
+		container[idx] = value
+		is_interpolated[idx] = false
+		_re_interpolate_around(state_id)
 		if last_changed_state_id < state_id and container[_get_index(state_id-1)] != value:
 			last_changed_state_id = state_id
 		return
@@ -204,6 +212,7 @@ func write(state_id: int, value):
 
 	for i in range(loop_iterations_count):
 		last_index = wrapi(last_index + 1, 0, container.size())
+		is_interpolated[last_index] = true
 		container[last_index] = _interpolate(
 			missing_state_interpolation, 
 			old_last_state_id, 
@@ -216,11 +225,52 @@ func write(state_id: int, value):
 	# Finally, write the new_last_state_id value
 	last_state_id = new_last_state_id
 	last_index = wrapi(last_index + 1, 0, container.size())
+	is_interpolated[last_index] = false
 	container[last_index] = value
 
 	if old_last_value != value:
 		last_changed_state_id = new_last_state_id
+
+# When we insert data that came from delayed frame,
+# we must re-interpolate around new data point
+func _re_interpolate_around(state_id):
+	assert(not is_interpolated[_get_index(state_id)])
 	
+	# Left side (before state_id)
+	var state_id_from = state_id-1
+	while contains(state_id_from) and is_interpolated[_get_index(state_id_from)]:
+		state_id_from -= 1
+	if not contains(state_id_from):
+		state_id_from = state_id
+
+	# Right side (after state_id)
+	var state_id_to = state_id+1
+	while contains(state_id_to) and is_interpolated[_get_index(state_id_to)]:
+		state_id_to += 1
+	if not contains(state_id_to):
+		state_id_to = state_id
+
+	for i in range(state_id_from + 1, state_id_to):
+		assert(i == state_id or is_interpolated[_get_index(i)]) #,'i=%s; idx=%s; %s' % [i, idx, is_interpolated]
+		if i < state_id:
+			container[_get_index(i)] = _interpolate(
+				missing_state_interpolation,
+				state_id_from,
+				container[_get_index(state_id_from)],
+				state_id,
+				container[_get_index(state_id)],
+				i
+			)
+		elif i > state_id:
+			container[_get_index(i)] = _interpolate(
+				missing_state_interpolation, 
+				state_id,
+				container[_get_index(state_id)],
+				state_id_to,
+				container[_get_index(state_id_to)],
+				i
+			)
+
 # Extrapolate according to settings of this propoerty, based on two given data points
 func _extrapolate(state_id):
 	# Not allowed to exxtrapolate past certain point
@@ -264,6 +314,12 @@ func _get_index(state_id: int)->int:
 	state_id = int(clamp(state_id, last_state_id - container.size() + 1, last_state_id))
 	return wrapi(last_index - last_state_id + state_id, 0, container.size())
 
+func _index_to_state_id(idx:int)->int:
+	if idx <= last_index:
+		return last_state_id - last_index + idx
+	else:
+		return last_state_id - container.size() - last_index + idx
+
 # Whether property contains value for given state_id
 func contains(state_id: int):
 	return state_id == int(clamp(state_id, last_state_id - container.size() + 1, last_state_id))
@@ -277,6 +333,7 @@ static func lerpnorm(left: float, right: float, middle: float)->float:
 # and other property settings
 func resize(new_size):
 	assert(last_index < 0, "Attempt to resize a non-empty SyncedProperty")
+	is_interpolated.resize(new_size)
 	container.resize(new_size)
 
 # Determine value to be sent and protocol preference

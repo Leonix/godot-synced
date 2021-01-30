@@ -201,3 +201,67 @@ func test_shouldsend_do_not_sync():
 	assert_null(prop.shouldsend(17))
 	prop.write(21, 116.0)
 	assert_null(prop.shouldsend(20))
+
+func test_index_to_state_id():
+	var prop = autofree(SyncedProperty.new({
+		interpolation = SyncedProperty.LINEAR_INTERPOLATION,
+		missing_state_interpolation = SyncedProperty.LINEAR_INTERPOLATION
+	}))
+	prop.resize(9)
+	prop.write(2, 102.0)
+	prop.write(11, 111.0)
+	prop.write(15, 115.0)
+	assert_eq(4, prop.last_index)
+	assert_eq(prop._index_to_state_id(0), 11)
+	assert_eq(prop._index_to_state_id(1), 12)
+	assert_eq(prop._index_to_state_id(2), 13)
+	assert_eq(prop._index_to_state_id(3), 14)
+	assert_eq(prop._index_to_state_id(4), 15)
+	assert_eq(prop._index_to_state_id(5), 7)
+	assert_eq(prop._index_to_state_id(6), 8)
+	assert_eq(prop._index_to_state_id(7), 9)
+	assert_eq(prop._index_to_state_id(8), 10)
+
+func test_re_interpolate1():
+	var prop = autofree(SyncedProperty.new({
+		interpolation = SyncedProperty.LINEAR_INTERPOLATION,
+		missing_state_interpolation = SyncedProperty.LINEAR_INTERPOLATION
+	}))
+	prop.resize(9)
+	# 11  12  13  14  15  16  17  18  19
+	# 111 112 113 114 115 114 113 112 111
+	prop.write(11, 111.0)
+	prop.write(19, 111.0)
+	assert_eq(9, prop.container.count(111.0))
+	prop.write(15, 115.0)
+	assert_eq(19, prop.last_state_id)
+	assert_eq(111.0, prop.read(11))
+	assert_eq(112.0, prop.read(12))
+	assert_eq(113.0, prop.read(13))
+	assert_eq(114.0, prop.read(14))
+	assert_eq(115.0, prop.read(15))
+	assert_eq(114.0, prop.read(16))
+	assert_eq(113.0, prop.read(17))
+	assert_eq(112.0, prop.read(18))
+	assert_eq(111.0, prop.read(19))
+
+func test_re_interpolate2():
+	var prop = autofree(SyncedProperty.new({
+		interpolation = SyncedProperty.LINEAR_INTERPOLATION,
+		missing_state_interpolation = SyncedProperty.LINEAR_INTERPOLATION
+	}))
+	prop.resize(8)
+	# 0    1    2    3    4    5    6    7
+	# i    i    noi  i    i    noi  i    noi
+	# 130  131  132  133  134 (135) 128  129
+	# 1130 1131 1132 1133 1134 1135 1128 1129
+	prop.write(122, 1122.0)
+	prop.write(129, 1129.0)
+	prop.write(132, 1132.0)
+	prop.write(135, 1135.0)
+	assert_eq([true, true, false, true, true, false, true, false], prop.is_interpolated)
+	assert_eq(135, prop.last_state_id)
+	assert_eq(5, prop.last_index)
+	var old_state = prop.container.duplicate()
+	prop.write(135, 1135.0)
+	assert_eq(old_state, prop.container)
