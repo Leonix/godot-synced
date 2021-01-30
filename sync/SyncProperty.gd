@@ -62,8 +62,19 @@ export(int, 'NO_INTERPOLATION', 'LINEAR_INTERPOLATION') var missing_state_interp
 # when state_id requested from the future
 export var max_extrapolation = 15
 
+# possible client-side-prediction strategies
+enum {
+	# Client-Side Prediction is disabled
+	NO_CSP,
+	
+	# Only enable CSP if SyncBase belongs to local peer
+	IF_BELONGS_TO_LOCAL_PEER_CSP,
+	
+	# Always enable Client-Side-Prediction
+	ALWAYS_CSP
+}
 # Allow client-side predicted values for this property
-export var client_side_prediction = false
+export(int, 'NO_CSP', 'IF_BELONGS_TO_LOCAL_PEER_CSP', 'ALWAYS_CSP') var client_side_prediction = NO_CSP
 
 # Array-like storage place for historic values.
 # This is used as a circular buffer. We keep track of last written index self.last_index,
@@ -81,7 +92,8 @@ var last_state_id: int = 0
 var last_changed_state_id: int = 0
 # Last time SyncBase applied CSP compensation based on data that came from server
 var last_compensated_state_id: int = 0
-
+# Prints all successfull writes to this to console
+export var debug_log = false
 # Storage for additional meta-data.
 # Unrecognized options passed to the constructor go here.
 export var meta: Dictionary
@@ -98,7 +110,7 @@ func _init(options: Dictionary = {}):
 func _get(state_id_str):
 	if state_id_str is int and state_id_str <= last_state_id:
 		assert(ready_to_read(), "Attempt to read from SyncProperty before any write has happened.")
-		return self.container[_get_index(state_id_str)]
+		return self.container[_get_index(relative_state_id(state_id_str))]
 	var state_id = float(state_id_str)
 	if state_id != 0.0:
 		return self.read(state_id)
@@ -148,7 +160,8 @@ func read(state_id: float):
 # Write is ignored if state_id is too old.
 func write(state_id: int, value):
 	assert(ready_to_write(), "Attempt to write to SyncProperty before container size is set.")
-
+	if debug_log:
+		print('%s[%d]=%s' % [name, state_id, value])
 	# Initial write must fill in the whole buffer
 	if last_index < 0:
 		last_index = 0

@@ -35,4 +35,5 @@ script = ExtResource( 4 )
 script = ExtResource( 3 )
 interpolation = 1
 missing_state_interpolation = 1
+client_side_prediction = 1
 [connection signal="area_entered" from="." to="." method="_on_paddle_area_enter"]

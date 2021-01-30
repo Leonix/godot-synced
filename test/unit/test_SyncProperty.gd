@@ -124,6 +124,16 @@ func test_changed():
 	assert_true(prop.changed(16))
 	assert_true(prop.changed(20))
 
+func test_get_negative():
+	assert_null(prop)
+	prop = SyncProperty.new({})
+	prop.resize(4)
+	prop.write(11, 111.0)
+	prop.write(12, 112.0)
+	prop.write(13, 113.0)
+	prop.write(14, 114.0)
+	assert_eq(114.0, prop._get(-1))
+
 func test_get_index():
 	assert_null(prop)
 	prop = SyncProperty.new({})

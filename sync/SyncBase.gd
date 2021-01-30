@@ -39,7 +39,7 @@ class_name SyncBase
 # Game logic should set this to appropriate peer_id for objects
 # that are normally would read input from Input class or use _input() callback
 # 0 here always means local player. null means no one (dummy input).
-var belongs_to_peer_id = null
+var belongs_to_peer_id = null setget set_belongs_to_peer_id
 
 # Should be set by whoever instanced scene containing this before attaching to scene tree.
 # Affects how Client-Side-Predicted new entities locate their Server counterparts.
@@ -79,19 +79,37 @@ var _last_received_state_mtime = 0
 var _contains_csp_property = false
 var input_id_to_state_id = null
 
+# Server: true if last time this SyncBase sent to clients, frame contained at least one value.
+# Client: true if last time we received from server, frame contained at least one value.
+var _last_frame_had_data = true
+
 func _ready():
-	# SyncBase that contains a CSP property need to keep track of 
-	# when each input_frame was produced
-	if SyncManager.is_client():
-		var size = 0
-		for property in get_children():
-			if property.client_side_prediction:
-				_contains_csp_property = true
-				size = property.container.size()
-				break
-		if _contains_csp_property:
-			input_id_to_state_id = SyncPeer.CircularBuffer(size, 0)
+	update_csp_status()
 	SyncManager.SyncBase_created(self, spawner)
+
+# SyncBase that contains a CSP property need to keep track of 
+# when each input_frame was produced
+func update_csp_status():
+	var size = 0
+	_contains_csp_property = false
+	for property in get_children():
+		if is_csp_enabled(property):
+			_contains_csp_property = true
+			size = property.container.size()
+			break
+	if _contains_csp_property:
+		input_id_to_state_id = SyncPeer.CircularBuffer.new(size, 0)
+	else:
+		input_id_to_state_id = null
+
+# Whether client-side prediction is enabled for given property.
+# This properly resolves SyncProperty.IF_BELONGS_TO_LOCAL_PEER_CSP
+func is_csp_enabled(property:SyncProperty)->bool:
+	if property.client_side_prediction == SyncProperty.ALWAYS_CSP:
+		return true
+	if property.client_side_prediction == SyncProperty.IF_BELONGS_TO_LOCAL_PEER_CSP and is_local_peer():
+		return true
+	return false
 
 func _process(_delta):
 	if _first_process_since_physics_process:
@@ -134,14 +152,27 @@ func _physics_process(_delta):
 	state_id += 1
 	_first_process_since_physics_process = true
 	if SyncManager.is_client():
-		var mtime_since_last_update = OS.get_system_time_msecs() - _last_received_state_mtime
-		var should_be_current_state_id = _last_received_state_id + mtime_since_last_update / 1000.0 * Engine.iterations_per_second
-		if abs(should_be_current_state_id - state_id) >= 2:
-			state_id = int(should_be_current_state_id)
-		if state_id > _last_received_state_id + SyncManager.max_offline_extrapolation:
-			state_id = _last_received_state_id + SyncManager.max_offline_extrapolation
-		if input_id_to_state_id:
-			input_id_to_state_id.write(SyncManager.get_local_peer().input_id, state_id)
+		if not _last_frame_had_data:
+			# Last time we received an empty frame.
+			# It means that no values changed and likely will not change soon.
+			# We're allowed to extrapolate this last known state into the future
+			# as if we receive it from server each frame.
+			for prop in sync_properties:
+				var property = sync_properties[prop]
+				if is_csp_enabled(property):
+					pass # can't correct prediction errors though
+				else:
+					if property.debug_log: print('ext_emp_f')
+					property.write(state_id, property._get(-1))
+		else:
+			var mtime_since_last_update = OS.get_system_time_msecs() - _last_received_state_mtime
+			var should_be_current_state_id = _last_received_state_id + mtime_since_last_update / 1000.0 * Engine.iterations_per_second
+			if abs(should_be_current_state_id - state_id) >= 2:
+				state_id = int(should_be_current_state_id)
+			if state_id > _last_received_state_id + SyncManager.max_offline_extrapolation:
+				state_id = _last_received_state_id + SyncManager.max_offline_extrapolation
+			if input_id_to_state_id:
+				input_id_to_state_id.write(SyncManager.get_local_peer().input_id, state_id)
 
 	if SyncManager.is_server():
 		var time = OS.get_system_time_msecs()
@@ -191,6 +222,8 @@ func send_all_data_frames():
 	if can_batch:
 		pass # !!! will probably have to prepare all data frames in advance and then compare
 
+	var this_frame_had_data = false
+
 	# If something differs, send each frame separately.
 	# If can batch, prepare data for first peer_id and send packet to everyone.
 	for peer_id in multiplayer.get_network_connected_peers():
@@ -199,17 +232,22 @@ func send_all_data_frames():
 			[var sendtable, var reliable_frame, var unreliable_frame]:
 
 				# simulate packet loss
+				var drop_unreliable_frame = false
 				if SyncManager.simulate_unreliable_packet_loss_percent > 0:
 					if rand_range(0, 100) < SyncManager.simulate_unreliable_packet_loss_percent:
-						unreliable_frame = null
+						drop_unreliable_frame = true
 
 				var last_consumed_input_id = null
 				if _contains_csp_property:
 					var peer = SyncManager.get_peer(peer_id)
 					if peer and not peer.is_stale_input():
 						last_consumed_input_id = peer.input_id
-				
-				if unreliable_frame and unreliable_frame.size() > 0:
+
+				var unreliable_frame_has_data = unreliable_frame and unreliable_frame.size() > 0
+				var reliable_frame_has_data = reliable_frame and reliable_frame.size() > 0
+				this_frame_had_data = this_frame_had_data or reliable_frame_has_data or unreliable_frame_has_data
+
+				if not drop_unreliable_frame and unreliable_frame_has_data:
 					#print('!!! sending unreliable frame %s (can_batch=%s) %s ' % [state_id, can_batch, unreliable_frame])
 					var data = pack_data_frame(sendtable, unreliable_frame)
 					var sendtable_ids = data[0]
@@ -220,7 +258,16 @@ func send_all_data_frames():
 					else:
 						rpc_unreliable_id(peer_id, 'receive_data_frame', state_id, last_consumed_input_id, sendtable_ids, data[1])
 
-				if reliable_frame and reliable_frame.size() > 0:
+				if reliable_frame_has_data or (_last_frame_had_data and not unreliable_frame_has_data):
+					
+					# When there's no reliable and no unreliable frame, we still need to send
+					# an empty packet so that client knows nothing changed this frame.
+					# Otherwise they will try to extrapolate. It's like a dot
+					# at the end of a sentence. We use reliable for the dot so that
+					# we only have to send it once.
+					if not reliable_frame_has_data and not unreliable_frame_has_data and _last_frame_had_data:
+						reliable_frame = {} # make sure it's not null
+					
 					#print('!!! sending reliable frame %s (can_batch=%s) %s ' % [state_id, can_batch, reliable_frame])
 					var data = pack_data_frame(sendtable, reliable_frame)
 					var sendtable_ids = data[0]
@@ -239,9 +286,11 @@ func send_all_data_frames():
 							_peer_prop_reliable_state_ids[peer_id] = {}
 						for prop in reliable_frame:
 							_peer_prop_reliable_state_ids[peer_id][prop] = state_id
+
 		# When data for all peers match, we're done after the first loop iteration
 		if can_batch:
-			return
+			break
+	_last_frame_had_data = this_frame_had_data
 
 # Prepare data frame based on how long ago last reliable frame was sent to a peer
 func prepare_data_frame(prop_reliable_state_ids:Dictionary):
@@ -297,14 +346,17 @@ puppet func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, val
 	#print('!!! received frame %s %s %s %s' % [st_id, sendtable_ids, values, frame])
 	for prop in sync_properties:
 		var property = sync_properties[prop]
-		if property.client_side_prediction:
+		if is_csp_enabled(property):
 			if prop in frame and last_consumed_input_id:
 				correct_prediction_error(property, last_consumed_input_id, frame[prop])
 		elif prop in frame:
+			if property.debug_log: print('srv_data')
 			property.write(st_id, frame[prop])
-		else:
-			property.write(st_id, property._get(st_id))
+		elif prop.last_state_id < st_id:
+			if property.debug_log: print('srv_no_data')
+			property.write(st_id, property._get(-1))
 		
+	_last_frame_had_data = frame.size() > 0
 	if _last_received_state_id < st_id:
 		_last_received_state_id = st_id
 		_last_received_state_mtime = OS.get_system_time_msecs()
@@ -384,9 +436,9 @@ func correct_prediction_error(property:SyncProperty, input_id:int, value):
 	
 	# Immediately subtract prediction error from all predictions, 
 	# starting from state_id up to current best predicted property value.
+	if property.debug_log: print('csp_err')
 	for i in range(st_id, property.last_state_id+1):
-		var v = property._get(st_id)
-		property.set(st_id, v - error)
+		property._set(i, property._get(i) - error)
 
 # Returns object to serve as a drop-in replacement for builtin Input to proxy
 # player input through. On server, this receives remote input over the net.
@@ -417,11 +469,24 @@ func get_interpolation_state_id():
 	assert(SyncManager.is_client())
 	return get_state_id_frac() - SyncManager.client_interpolation_lag
 
+func set_belongs_to_peer_id(peer_id):
+	if peer_id == multiplayer.get_network_unique_id():
+		peer_id = 0
+	var should_update_csp = belongs_to_peer_id == null
+	if not should_update_csp:
+		if belongs_to_peer_id > 0 and peer_id == 0:
+			should_update_csp = true
+		elif belongs_to_peer_id == 0 and peer_id > 0:
+			should_update_csp = true
+	belongs_to_peer_id = peer_id
+	if should_update_csp:
+		update_csp_status()
+
 func _get(prop):
 	var p = sync_properties.get(prop)
 	if p:
 		assert(p.ready_to_read(), "Attempt to read from %s:%s before any writes happened" % [get_path(), prop])
-		if not SyncManager.is_client() or p.client_side_prediction or p.sync_strategy == SyncProperty.CLIENT_OWNED:
+		if not SyncManager.is_client() or is_csp_enabled(p) or p.sync_strategy == SyncProperty.CLIENT_OWNED:
 			return p.read(-1)
 		return p.read(get_interpolation_state_id())
 
@@ -436,7 +501,8 @@ func _set(prop, value):
 		# But we always allow the first initializing write, even on a client.
 		if p.ready_to_read():
 			if SyncManager.is_client():
-				if not p.client_side_prediction and p.sync_strategy != SyncProperty.CLIENT_OWNED:
+				if not is_csp_enabled(p) and p.sync_strategy != SyncProperty.CLIENT_OWNED:
 					return true
+		if p.debug_log: print('lcl_data')
 		p.write(state_id, value)
 		return true
