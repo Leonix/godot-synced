@@ -352,7 +352,7 @@ puppet func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, val
 		elif prop in frame:
 			if property.debug_log: print('srv_data')
 			property.write(st_id, frame[prop])
-		elif prop.last_state_id < st_id:
+		elif property.last_state_id < st_id:
 			if property.debug_log: print('srv_no_data')
 			property.write(st_id, property._get(-1))
 		

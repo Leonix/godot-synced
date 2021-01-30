@@ -34,17 +34,15 @@ func get_action_strength(action: String)->float:
 
 func _get_value(action, input_id=-1):
 	var peer = get_parent()
-	if not peer or not peer.storage.ready_to_read():
+	if not peer:
 		return null
-	var property = peer.storage
-
 	# If last input from this client was too long ago, return empty frame.
 	# This stops extrapolating last known frame after certain number of steps.
-	if peer.input_id - property.last_state_id > SyncManager.input_prediction_max_frames:
+	if peer.input_id - peer.storage.last_input_id > SyncManager.input_prediction_max_frames:
 		return null
 	if input_id < 0:
 		input_id = peer.input_id + 1 + input_id
-	var frame = property.read(input_id)
+	var frame = peer.storage.read(input_id)
 	if not (action in frame):
 		return null
 	return frame[action]

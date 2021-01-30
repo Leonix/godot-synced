@@ -12,15 +12,6 @@ class_name SyncPeer
 # Remote SyncPeers only exist on server and have Node.name equal to their network_peer_id.
 # Remote SyncPeers are added and removed as clients connect and disconnect from server.
 
-# SyncProperty stores a history of input frames from both local peer and remote peers. 
-# Each input frame is a Dictionary mapping Input action name:String to value.
-var storage = SyncProperty.new({
-	max_extrapolation = 0,
-	missing_state_interpolation = SyncProperty.NO_INTERPOLATION,
-	interpolation = SyncProperty.NO_INTERPOLATION,
-	sync_strategy = SyncProperty.DO_NOT_SYNC
-})
-
 # Input facade is an object to read player's input through,
 # like a (limited) drop-in replacement of Godot's Input class.
 # It unifies for Game Logic reading input from local and remote peers.
@@ -39,18 +30,18 @@ var stale_input_frame_count = 0
 # must exactly match sendtable on server.
 onready var input_sendtable = parse_input_map(InputMap)
 
+# Buffer stores a history of input frames from both local peer and remote peers. 
+# Each input frame is a Dictionary mapping Input action name(String) to value(int or float).
+onready var storage = CircularBuffer.new(SyncManager.input_frames_history_size, get_empty_input_frame())
+
 # Used on a local peer to control rate of sending input from client to server
 var _mtime_last_input_batch_sent = 0.0
-
-func _init():
-	storage.resize(SyncManager.input_frames_history_size)
-	add_child(storage)
 
 func _physics_process(_delay):
 	if is_local():
 		# Build new Input frame
 		input_id += 1
-		sample_input()
+		storage.write(input_id, sample_input())
 
 		# Client: send input frames to server if time has come
 		if SyncManager.is_client():
@@ -65,7 +56,7 @@ func _physics_process(_delay):
 
 	if not is_local():
 		# read next input frame from the client, if it came
-		if storage.last_state_id > input_id:
+		if storage.last_input_id > input_id:
 			input_id += 1
 			stale_input_frame_count = 0
 		else:
@@ -82,8 +73,8 @@ func _physics_process(_delay):
 		# Short storage buffer size will keep clients from large input lag.
 		# !!! Skipping random frames has a major downside that server may miss
 		# an occasional just_pressed or just_released
-		if input_id <= storage.last_state_id - storage.container.size():
-			input_id = 1 + storage.last_state_id - storage.container.size()
+		if input_id <= storage.last_input_id - storage.container.size():
+			input_id = 1 + storage.last_input_id - storage.container.size()
 
 		# TODO: it is possible to invent more complicated srategies, like skipping 
 		# current frame if it matches either previous or the next one...
@@ -125,8 +116,6 @@ func parse_input_map(input_map):
 
 func send_input_batch():
 	assert(is_local() and SyncManager.is_client())
-	if not storage.ready_to_read():
-		return # paranoid check
 	assert(storage.container.size() >= SyncManager.input_frames_min_batch, 'input_frames_min_batch can not be less than input_frames_history_size')
 
 	# simulate packet loss
@@ -135,8 +124,8 @@ func send_input_batch():
 			return
 
 	var frames = []
-	var first_input_id = storage.last_state_id - SyncManager.input_frames_min_batch + 1
-	for iid in range(first_input_id, storage.last_state_id+1):
+	var first_input_id = storage.last_input_id - SyncManager.input_frames_min_batch + 1
+	for iid in range(first_input_id, storage.last_input_id+1):
 		var frame = storage.read(iid);
 		assert(frame is Dictionary, "Unexpected Input Frame from SyncPeer storage")
 		frames.append(frame.duplicate())
@@ -295,7 +284,7 @@ func sample_input():
 					result[action] = Input.get_action_strength(action)
 				_:
 					assert(false, "Unknown input action class '%s'" % type)
-	storage.write(input_id, result)
+	return result
 
 func get_empty_input_frame():
 	var empty_frame = {}
@@ -311,7 +300,8 @@ func is_local():
 	return self.name == '0'
 
 # Maps input_id to values, up to buffer size.
-# !!! TODO: use this instead of SyncProperty
+# In case of SyncPeer, values are Dictionaries with input data.
+# This is also used in SyncBase to map input_ids to state_ids
 class CircularBuffer:
 
 	# Storage place for historic values.
@@ -364,7 +354,7 @@ class CircularBuffer:
 		# Loop iteration count can not exceed size of container
 		loop_iterations_count = clamp(loop_iterations_count, 0, container.size()-1)
 
-		for i in range(loop_iterations_count):
+		for _i in range(loop_iterations_count):
 			last_index = wrapi(last_index + 1, 0, container.size())
 			container[last_index] = old_last_value
 
