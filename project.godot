@@ -20,20 +20,20 @@ _global_script_classes=[ {
 "path": "res://sync/SyncPeer.gd"
 }, {
 "base": "Node",
-"class": "SyncProperty",
-"language": "GDScript",
-"path": "res://sync/SyncProperty.gd"
-}, {
-"base": "Node",
 "class": "Synced",
 "language": "GDScript",
 "path": "res://sync/Synced.gd"
+}, {
+"base": "Node",
+"class": "SyncedProperty",
+"language": "GDScript",
+"path": "res://sync/SyncedProperty.gd"
 } ]
 _global_script_class_icons={
 "SyncInputFacade": "",
 "SyncPeer": "",
-"SyncProperty": "",
-"Synced": ""
+"Synced": "",
+"SyncedProperty": ""
 }
 
 [application]

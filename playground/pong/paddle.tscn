@@ -2,9 +2,8 @@
 
 [ext_resource path="res://playground/pong/logic/paddle.gd" type="Script" id=1]
 [ext_resource path="res://playground/pong/paddle.png" type="Texture" id=2]
-[ext_resource path="res://sync/SyncProperty.gd" type="Script" id=3]
+[ext_resource path="res://sync/SyncedProperty.gd" type="Script" id=3]
 [ext_resource path="res://sync/Synced.gd" type="Script" id=4]
-
 
 [sub_resource type="CapsuleShape2D" id=1]
 radius = 4.78568

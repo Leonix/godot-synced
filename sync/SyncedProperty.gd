@@ -6,7 +6,7 @@
 #
 
 extends Node
-class_name SyncProperty
+class_name SyncedProperty
 
 # Possible property sync strategies (`options.sync_strategy`)
 enum { 
@@ -109,7 +109,7 @@ func _init(options: Dictionary = {}):
 
 func _get(state_id_str):
 	if state_id_str is int and state_id_str <= last_state_id:
-		assert(ready_to_read(), "Attempt to read from SyncProperty before any write has happened.")
+		assert(ready_to_read(), "Attempt to read from SyncedProperty before any write has happened.")
 		return self.container[_get_index(relative_state_id(state_id_str))]
 	var state_id = float(state_id_str)
 	if state_id != 0.0:
@@ -129,7 +129,7 @@ func _set(state_id_str, value):
 # Returns property value at given state_id, doing all the interpolation 
 # and extrapolation magic as set up for this property.
 func read(state_id: float):
-	assert(ready_to_read(), "Attempt to read from SyncProperty before any write has happened.")
+	assert(ready_to_read(), "Attempt to read from SyncedProperty before any write has happened.")
 
 	if state_id < 0:
 		state_id = max(1, last_state_id + 1 + state_id)
@@ -159,7 +159,7 @@ func read(state_id: float):
 # Overwrites historic value or adds a new state_id.
 # Write is ignored if state_id is too old.
 func write(state_id: int, value):
-	assert(ready_to_write(), "Attempt to write to SyncProperty before container size is set.")
+	assert(ready_to_write(), "Attempt to write to SyncedProperty before container size is set.")
 	if debug_log:
 		print('%s[%d]=%s' % [name, state_id, value])
 	# Initial write must fill in the whole buffer
@@ -223,7 +223,7 @@ func _extrapolate(state_id):
 	# floor state_id to closest integer in order to simulate interpolated behaviour
 	# of interpolation=NO_INTERPOLATION, missing_state_interpolation=LINEAR_INTERPOLATION
 	if self.interpolation != LINEAR_INTERPOLATION:
-		assert(self.interpolation == NO_INTERPOLATION, 'SyncProperty interpolation strategy not implemented for extrapolation %s' % self.interpolation)
+		assert(self.interpolation == NO_INTERPOLATION, 'SyncedProperty interpolation strategy not implemented for extrapolation %s' % self.interpolation)
 		state_id = int(state_id)
 
 	return _interpolate(
@@ -245,7 +245,7 @@ static func _interpolate(strategy, left_state_id:int, left_value, right_state_id
 		else:
 			return right_value
 			
-	assert(strategy == LINEAR_INTERPOLATION, 'Unknown SyncProperty interpolation strategy %s' % strategy)
+	assert(strategy == LINEAR_INTERPOLATION, 'Unknown SyncedProperty interpolation strategy %s' % strategy)
 	return lerp(
 		left_value, 
 		right_value, 
@@ -269,7 +269,7 @@ static func lerpnorm(left: float, right: float, middle: float)->float:
 # Synced must specify buffer size for each property depending on client/server state
 # and other property settings
 func resize(new_size):
-	assert(last_index < 0, "Attempt to resize a non-empty SyncProperty")
+	assert(last_index < 0, "Attempt to resize a non-empty SyncedProperty")
 	container.resize(new_size)
 
 # Determine value to be sent and protocol preference

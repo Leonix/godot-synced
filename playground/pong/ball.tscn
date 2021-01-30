@@ -2,9 +2,8 @@
 
 [ext_resource path="res://playground/pong/logic/ball.gd" type="Script" id=1]
 [ext_resource path="res://playground/pong/ball.png" type="Texture" id=2]
-[ext_resource path="res://sync/SyncProperty.gd" type="Script" id=3]
+[ext_resource path="res://sync/SyncedProperty.gd" type="Script" id=3]
 [ext_resource path="res://sync/Synced.gd" type="Script" id=4]
-
 
 [sub_resource type="CircleShape2D" id=1]
 radius = 5.11969

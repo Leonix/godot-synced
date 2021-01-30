@@ -16,12 +16,12 @@ class_name Synced
 # - It stores a history of values for everything it syncs.
 # - It acts as a proxy for player input, see `get_input()` and `belongs_to_peer_id`
 #
-# `Synced` is designed to parent one or more SyncProperty child nodes.
-# Each SyncProperty child becomes a property (field) on this object accessible
+# `Synced` is designed to parent one or more SyncedProperty child nodes.
+# Each SyncedProperty child becomes a property (field) on this object accessible
 # as normal property. For example, consider the following scene:
 #     Player (Player.gd extends Node)
 #     Player/synced (Synced)
-#     Player/synced/position (SyncProperty)
+#     Player/synced/position (SyncedProperty)
 # Then, code in Player.gd may read and write position (both on client and server)
 # as follows:
 #     onready var synced = $Synced
@@ -45,7 +45,7 @@ var spawner: Synced = null # !!! CSP-created nodes are not implemented yet
 # Input facade to read player's input through instead of builtin Input
 var input setget ,get_input
 
-# Contains child properties {name:SyncProperty}. Determines sendtable.
+# Contains child properties {name:SyncedProperty}. Determines sendtable.
 # Sorted by sync strategy: UNRELIABLE_SYNC, AUTO_SYNC, RELIABLE_SYNC, DO_NOT_SYNC, CLIENT_OWNED
 # Among one strategy, order matches position in node tree.
 # Properties should go higher in node tree if expected to transmit more often.
@@ -100,11 +100,11 @@ func update_csp_status():
 		input_id_to_state_id = null
 
 # Whether client-side prediction is enabled for given property.
-# This properly resolves SyncProperty.IF_BELONGS_TO_LOCAL_PEER_CSP
-func is_csp_enabled(property:SyncProperty)->bool:
-	if property.client_side_prediction == SyncProperty.ALWAYS_CSP:
+# This properly resolves SyncedProperty.IF_BELONGS_TO_LOCAL_PEER_CSP
+func is_csp_enabled(property:SyncedProperty)->bool:
+	if property.client_side_prediction == SyncedProperty.ALWAYS_CSP:
 		return true
-	if property.client_side_prediction == SyncProperty.IF_BELONGS_TO_LOCAL_PEER_CSP and is_local_peer():
+	if property.client_side_prediction == SyncedProperty.IF_BELONGS_TO_LOCAL_PEER_CSP and is_local_peer():
 		return true
 	return false
 
@@ -123,19 +123,19 @@ func prepare_sync_properties():
 	var add_later = []
 	var add_last = []
 	for property in get_children():
-		assert(property is SyncProperty, 'All children of Synced must be SyncProperty (looking at you, %s)' % property.name)
+		assert(property is SyncedProperty, 'All children of Synced must be SyncedProperty (looking at you, %s)' % property.name)
 		if not property.ready_to_write():
 			SyncManager.init_sync_property(property)
 			match property.sync_strategy:
-				SyncProperty.UNRELIABLE_SYNC:
+				SyncedProperty.UNRELIABLE_SYNC:
 					result[property.name] = property
-				SyncProperty.AUTO_SYNC:
+				SyncedProperty.AUTO_SYNC:
 					add_later.push_front(property)
-				SyncProperty.RELIABLE_SYNC:
+				SyncedProperty.RELIABLE_SYNC:
 					add_later.append(property)
-				SyncProperty.DO_NOT_SYNC:
+				SyncedProperty.DO_NOT_SYNC:
 					add_last.push_front(property)
-				SyncProperty.CLIENT_OWNED:
+				SyncedProperty.CLIENT_OWNED:
 					add_last.append(property)
 				var unknown_strategy:
 					assert(false, 'Unknown sync strategy %s' % unknown_strategy)
@@ -301,19 +301,19 @@ func prepare_data_frame(prop_reliable_state_ids:Dictionary):
 		var property = sync_properties[prop]
 		
 		match property.shouldsend(prop_reliable_state_ids.get(prop, 0)):
-			[SyncProperty.CLIENT_OWNED, ..],\
-			[SyncProperty.DO_NOT_SYNC, ..]:
+			[SyncedProperty.CLIENT_OWNED, ..],\
+			[SyncedProperty.DO_NOT_SYNC, ..]:
 				pass
-			[SyncProperty.RELIABLE_SYNC, var value]:
+			[SyncedProperty.RELIABLE_SYNC, var value]:
 				frame_reliable[prop] = value
-			[SyncProperty.UNRELIABLE_SYNC, var value]:
+			[SyncedProperty.UNRELIABLE_SYNC, var value]:
 				frame_unreliable[prop] = value
-			[SyncProperty.AUTO_SYNC, var value]:
+			[SyncedProperty.AUTO_SYNC, var value]:
 				unassigned[prop] = value
 			null, false:
 				pass
 			var unknown_shouldsend:
-				assert(false, 'SyncProperty.shouldsend() returned unexpected value %s' % unknown_shouldsend)
+				assert(false, 'SyncedProperty.shouldsend() returned unexpected value %s' % unknown_shouldsend)
 
 	# Append AUTO_SYNC to where needed
 	if unassigned.size() > 0:
@@ -403,7 +403,7 @@ static func parse_data_frame(sendtable:Array, sendtable_ids, values)->Dictionary
 
 # Correct possible client-side prediction error once known valid server state comes
 # for an older state that we recently predicted.
-func correct_prediction_error(property:SyncProperty, input_id:int, value):
+func correct_prediction_error(property:SyncedProperty, input_id:int, value):
 	assert(SyncManager.is_client())
 	assert(input_id_to_state_id is SyncPeer.CircularBuffer)
 	
@@ -474,14 +474,14 @@ func _get(prop):
 	var p = sync_properties.get(prop)
 	if p:
 		assert(p.ready_to_read(), "Attempt to read from %s:%s before any writes happened" % [get_path(), prop])
-		if not SyncManager.is_client() or is_csp_enabled(p) or p.sync_strategy == SyncProperty.CLIENT_OWNED:
+		if not SyncManager.is_client() or is_csp_enabled(p) or p.sync_strategy == SyncedProperty.CLIENT_OWNED:
 			return p.read(-1)
 		return p.read(get_interpolation_state_id())
 
 func _set(prop, value):
 	var p = sync_properties.get(prop)
 	if p:
-		assert(p.ready_to_write(), "Improperly initialized SyncProperty %s:%s" % [get_path(), prop])
+		assert(p.ready_to_write(), "Improperly initialized SyncedProperty %s:%s" % [get_path(), prop])
 		
 		# Normal interpolated properties are only writable on Server.
 		# Writes to non-client-owned and non-client-side-predicted
@@ -489,7 +489,7 @@ func _set(prop, value):
 		# But we always allow the first initializing write, even on a client.
 		if p.ready_to_read():
 			if SyncManager.is_client():
-				if not is_csp_enabled(p) and p.sync_strategy != SyncProperty.CLIENT_OWNED:
+				if not is_csp_enabled(p) and p.sync_strategy != SyncedProperty.CLIENT_OWNED:
 					return true
 		if p.debug_log: print('lcl_data')
 		p.write(state_id, value)

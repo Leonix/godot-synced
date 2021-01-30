@@ -1,27 +1,9 @@
 extends "res://addons/gut/test.gd"
 
-var SyncProperty = null
-var prop = null
-
-func before_all():
-	SyncProperty = load("res://sync/SyncProperty.gd")
-	
-func before_each():
-	pass
-
-func after_each():
-	if prop:
-		prop.free()
-	prop = null
-
-func after_all():
-	SyncProperty = null
-
 func test_no_interpolation():
-	assert_null(prop)
-	prop = SyncProperty.new({})
-	assert_eq(SyncProperty.NO_INTERPOLATION, prop.interpolation)
-	assert_eq(SyncProperty.NO_INTERPOLATION, prop.missing_state_interpolation)
+	var prop = autofree(SyncedProperty.new({}))
+	assert_eq(SyncedProperty.NO_INTERPOLATION, prop.interpolation)
+	assert_eq(SyncedProperty.NO_INTERPOLATION, prop.missing_state_interpolation)
 	prop.resize(10)
 	prop.write(12, 100.0)
 	assert_eq(100.0, prop.last())
@@ -44,15 +26,14 @@ func test_no_interpolation():
 	#gut.p('%s; last_state_id=%s, last_index=%s' % [prop.container, prop.last_state_id, prop.last_index])
 
 func test_linear_interpolation():
-	assert_null(prop)
-	prop = SyncProperty.new({
-		interpolation = SyncProperty.LINEAR_INTERPOLATION,
-		missing_state_interpolation = SyncProperty.LINEAR_INTERPOLATION
-	})
+	var prop = autofree(SyncedProperty.new({
+		interpolation = SyncedProperty.LINEAR_INTERPOLATION,
+		missing_state_interpolation = SyncedProperty.LINEAR_INTERPOLATION
+	}))
 	assert_false(prop.ready_to_read())
 	assert_false(prop.ready_to_write())
-	assert_eq(SyncProperty.LINEAR_INTERPOLATION, prop.interpolation)
-	assert_eq(SyncProperty.LINEAR_INTERPOLATION, prop.missing_state_interpolation)
+	assert_eq(SyncedProperty.LINEAR_INTERPOLATION, prop.interpolation)
+	assert_eq(SyncedProperty.LINEAR_INTERPOLATION, prop.missing_state_interpolation)
 	prop.resize(6)
 	assert_false(prop.ready_to_read())
 	assert_true(prop.ready_to_write())
@@ -90,8 +71,7 @@ func test_linear_interpolation():
 	#gut.p('%s; last_state_id=%s, last_index=%s' % [prop.container, prop.last_state_id, prop.last_index])
 
 func test_changed():
-	assert_null(prop)
-	prop = SyncProperty.new({})
+	var prop = autofree(SyncedProperty.new({}))
 	prop.resize(10)
 	prop.write(11, 111.0)
 	assert_eq(11, prop.last_changed_state_id)
@@ -125,8 +105,7 @@ func test_changed():
 	assert_true(prop.changed(20))
 
 func test_get_negative():
-	assert_null(prop)
-	prop = SyncProperty.new({})
+	var prop = autofree(SyncedProperty.new({}))
 	prop.resize(4)
 	prop.write(11, 111.0)
 	prop.write(12, 112.0)
@@ -135,8 +114,7 @@ func test_get_negative():
 	assert_eq(114.0, prop._get(-1))
 
 func test_get_index():
-	assert_null(prop)
-	prop = SyncProperty.new({})
+	var prop = autofree(SyncedProperty.new({}))
 	prop.resize(4)
 	prop.write(11, 111.0)
 	prop.write(12, 112.0)
@@ -149,11 +127,11 @@ func test_get_index():
 	for i in range(12, 16):
 		assert_eq(100.0+i, prop.container[prop._get_index(i)])
 
-func test_shouldsend_reliable_unreliable(strat=use_parameters([SyncProperty.RELIABLE_SYNC, SyncProperty.UNRELIABLE_SYNC])):
-	prop = SyncProperty.new({
+func test_shouldsend_reliable_unreliable(strat=use_parameters([SyncedProperty.RELIABLE_SYNC, SyncedProperty.UNRELIABLE_SYNC])):
+	var prop = autofree(SyncedProperty.new({
 		sync_strategy = strat,
 		strat_stale_delay = 2
-	})
+	}))
 	assert_eq(strat, prop.sync_strategy)
 	prop.resize(10)
 	prop.write(11, 111.0)
@@ -173,11 +151,11 @@ func test_shouldsend_reliable_unreliable(strat=use_parameters([SyncProperty.RELI
 	assert_null(prop.shouldsend(17))
 
 func test_shouldsend_auto():
-	var strat = SyncProperty.AUTO_SYNC
-	prop = SyncProperty.new({
+	var strat = SyncedProperty.AUTO_SYNC
+	var prop = autofree(SyncedProperty.new({
 		sync_strategy = strat,
 		strat_stale_delay = 2
-	})
+	}))
 	assert_eq(strat, prop.sync_strategy)
 	prop.resize(10)
 	prop.write(11, 111.0)
@@ -193,17 +171,17 @@ func test_shouldsend_auto():
 	assert_null(prop.shouldsend(17))
 	assert_null(prop.shouldsend(18))
 	prop.write(18, 115.0)
-	assert_eq([SyncProperty.RELIABLE_SYNC, 115.0], prop.shouldsend(13))
+	assert_eq([SyncedProperty.RELIABLE_SYNC, 115.0], prop.shouldsend(13))
 	assert_null(prop.shouldsend(17))
 	prop.write(21, 116.0)
 	assert_eq([strat, 116.0], prop.shouldsend(20))
 
 func test_shouldsend_do_not_sync():
-	var strat = SyncProperty.DO_NOT_SYNC
-	prop = SyncProperty.new({
+	var strat = SyncedProperty.DO_NOT_SYNC
+	var prop = autofree(SyncedProperty.new({
 		sync_strategy = strat,
 		strat_stale_delay = 2
-	})
+	}))
 	assert_eq(strat, prop.sync_strategy)
 	prop.resize(10)
 	prop.write(11, 111.0)
