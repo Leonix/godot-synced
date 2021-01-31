@@ -51,19 +51,8 @@ var _mtime_when_send_next_frame = 0.0
 # Remember per-peer and per-property when did we last sent a reliable state_id to them
 var _peer_prop_reliable_state_ids = {}
 
-# Last World State id that has been captured.
-var state_id = 1 setget set_state_id, get_state_id
-
-# Last World State id that has been captured.
-var state_id_frac setget , get_state_id_frac
-
-# Shenanigans needed to calculate state_id_frac
-var _state_id_frac_fix = 0.0
-var _first_process_since_physics_process = true
-
 # Used during client-side-prediction correction
 var _contains_csp_property = false
-var input_id_to_state_id = null
 
 # Server: true if last time this Synced sent to clients, frame contained at least one value.
 # Client: true if last time we received from server, frame contained at least one value.
@@ -76,17 +65,6 @@ func _ready():
 	update_csp_status()
 	setup_auto_update_parent()
 	SyncManager.synced_created(self, spawner)
-
-func _process(_delta):
-	# try to make first call to _process() after _physics_process()
-	# always give integer state_id_frac
-	if _first_process_since_physics_process and SyncManager.state_id_frac_to_integer_reduction > 0:
-		_first_process_since_physics_process = false
-		_state_id_frac_fix = move_toward(
-			_state_id_frac_fix, 
-			Engine.get_physics_interpolation_fraction(), 
-			SyncManager.state_id_frac_to_integer_reduction
-		)
 
 # We use process_internal to update parent node just before its _process() runs.
 # Only runs on Client if at least one auto-synced property is found.
@@ -102,15 +80,7 @@ func _physics_process(_delta):
 			if property.auto_sync_property != '':
 				_auto_sync_from_parent(property)
 
-	# Increment global state time
-	state_id += 1
-	_first_process_since_physics_process = true
-
 	if SyncManager.is_client():
-
-		# Fix clock desync
-		state_id = SyncManager.fix_current_state_id(state_id)
-
 		if not _last_frame_had_data:
 			# Last time we received an empty frame from Server.
 			# It means that no values changed and likely will not change soon.
@@ -120,13 +90,9 @@ func _physics_process(_delta):
 				var property = sync_properties[prop]
 				if is_csp_enabled(property):
 					pass # can't correct prediction errors though
-				elif int(get_interpolation_state_id()) > property.last_state_id:
+				elif int(SyncManager.get_interpolation_state_id()) > property.last_state_id:
 					if property.debug_log: print('ext_emp_f')
-					property.write(int(get_interpolation_state_id()), property._get(-1))
-
-		# Remember which input_id was recorded at which state_id (for CSP correction)
-		if input_id_to_state_id:
-			input_id_to_state_id.write(SyncManager.get_local_peer().input_id, state_id)
+					property.write(int(SyncManager.get_interpolation_state_id()), property._get(-1))
 
 	# Send data frame fromo server to clients if time has come
 	if SyncManager.is_server():
@@ -170,17 +136,11 @@ func setup_auto_update_parent():
 
 # CSP properties need to keep track of when each input_frame was produced
 func update_csp_status():
-	var size = 0
 	_contains_csp_property = false
 	for property in get_children():
 		if is_csp_enabled(property):
 			_contains_csp_property = true
-			size = property.container.size()
 			break
-	if _contains_csp_property:
-		input_id_to_state_id = SyncPeer.CircularBuffer.new(size, 0)
-	else:
-		input_id_to_state_id = null
 
 # Whether client-side prediction is enabled for given property.
 # This resolves SyncedProperty.IF_BELONGS_TO_LOCAL_PEER_CSP
@@ -256,6 +216,7 @@ func send_all_data_frames():
 		pass # !!! will probably have to prepare all data frames in advance and then compare
 
 	var this_frame_had_data = false
+	var state_id = SyncManager.state_id
 
 	# If something differs, send each frame separately.
 	# If can batch, prepare data for first peer_id and send packet to everyone.
@@ -438,14 +399,11 @@ static func parse_data_frame(sendtable:Array, sendtable_ids, values)->Dictionary
 # Correct client-side prediction made some time ago for an older state
 # once known valid server state comes delayed by network.
 func correct_prediction_error(property:SyncedProperty, input_id:int, value):
-	assert(SyncManager.is_client())
-	assert(input_id_to_state_id is SyncPeer.CircularBuffer)
-	
 	# state_id during which we locally produced input_id frame
-	if not input_id_to_state_id.contains(input_id):
+	var st_id = SyncManager.input_id_to_state_id(input_id)
+	if not st_id:
 		return
-	var st_id = input_id_to_state_id.read(input_id)
-	
+
 	# If prediction error has been compensated at some later state_id already,
 	# don't do anything. Or if state_id too long ago in the past.
 	if property.last_compensated_state_id > st_id or not property.contains(st_id):
@@ -477,23 +435,6 @@ func is_local_peer():
 func synced_property(name:String)->SyncedProperty:
 	return sync_properties.get(name)
 
-# Getters and setters
-func get_state_id_frac():
-	if Engine.is_in_physics_frame():
-		return float(state_id)
-	var result = Engine.get_physics_interpolation_fraction() - _state_id_frac_fix
-	result = clamp(result, 0.0, 0.99)
-	return result + state_id
-
-func set_state_id(_value):
-	pass # read-only
-func get_state_id():
-	return state_id
-
-func get_interpolation_state_id():
-	assert(SyncManager.is_client())
-	return max(1, get_state_id_frac() - SyncManager.client_interpolation_lag)
-
 func set_belongs_to_peer_id(peer_id):
 	if peer_id != 0 and peer_id == multiplayer.get_network_unique_id():
 		peer_id = 0
@@ -521,7 +462,7 @@ func _get(prop):
 		#	get_interpolation_state_id(), 
 		#	str(p.read(get_interpolation_state_id())) if p.changed(get_interpolation_state_id()-1) else '--'
 		#])
-		return p.read(get_interpolation_state_id())
+		return p.read(SyncManager.get_interpolation_state_id())
 
 func _set(prop, value):
 	var p = sync_properties.get(prop)
@@ -537,5 +478,5 @@ func _set(prop, value):
 				if not is_csp_enabled(p) and p.sync_strategy != SyncedProperty.CLIENT_OWNED:
 					return true
 		if p.debug_log: print('lcl_data')
-		p.write(state_id, value)
+		p.write(SyncManager.state_id, value)
 		return true

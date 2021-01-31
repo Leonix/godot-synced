@@ -102,15 +102,21 @@ var simulate_network_latency = null # [0.2, 0.3]
 # and input (client->server) packets.
 var simulate_unreliable_packet_loss_percent = 0.0
 
+# Server: last World State that's been processed (or being processed)
+# Client: our best guess what's current World State id on server.
+var state_id = 1 setget set_state_id, get_state_id
+
+# Same as state_id, smoothed out into float during _process() calls
+var state_id_frac: float setget , get_state_id_frac
+
 #
 # Private vars zone
 #
 
-var SyncPeer = preload("res://sync/SyncPeer.tscn")
+var SyncPeerScene = preload("res://sync/SyncPeer.tscn")
 
-
-# Whether connection to server is currently active. Only maintained on Client.
-var _is_connected_to_server = false
+# On Client, CSP correction must remember when we recorded each input frame
+onready var input_id_to_state_id = SyncPeer.CircularBuffer.new(client_interpolation_history_size, 0)
 
 func _ready():
 	get_local_peer()
@@ -118,11 +124,23 @@ func _ready():
 	get_tree().connect("network_peer_disconnected", self, "_player_disconnected")
 	get_tree().connect("server_disconnected", self, "_i_disconnected")
 
-#func _physics_process(_delta):
-#	# Server: update Client-owned properties of all Synced objects, 
-#	# taking them from new input frame from each client
-#	if is_server():
-#		pass # !!!
+func _process(_delta):
+	fix_state_id_frac()
+
+func _physics_process(_delta):
+	_first_process_since_physics_process = true
+
+	# Increment global state time
+	state_id += 1
+	# Fix clock desync
+	if SyncManager.is_client():
+		state_id = fix_current_state_id(state_id)
+		input_id_to_state_id.write(get_local_peer().input_id, state_id)
+
+	# Server: update Client-owned properties of all Synced objects, 
+	# taking them from new input frame from each client
+	if is_server():
+		pass # !!!
 
 # Called from SyncPeer. RPC goes through this proxy rather than SyncPeer itself
 # because of differences in node path between server and client.
@@ -172,16 +190,11 @@ func update_received_state_id_and_mtime(new_server_state_id):
 		_old_received_state_id = _last_received_state_id - 1000
 		_old_received_state_mtime = _last_received_state_mtime - (new_time_diff * 1000.0 / new_state_diff)
 	
-# This scary logic figures out if client should skip some state_ids
-# or wait and render state_id two times in a row. This is needed in case
-# of clock desync between client and server, or short network failure.
-func fix_current_state_id(st_id:int)->int:
-	var should_be_current_state_id = int(clamp(st_id, _last_received_state_id, _last_received_state_id + SyncManager.client_interpolation_lag))
-	st_id = int(move_toward(st_id, should_be_current_state_id, 1))
-	# Refuse to extrapolate more than allowed by global settings
-	if st_id > _last_received_state_id + SyncManager.max_offline_extrapolation:
-		st_id = _last_received_state_id + SyncManager.max_offline_extrapolation
-	return st_id
+func input_id_to_state_id(input_id:int):
+	assert(is_client())
+	if not input_id_to_state_id.contains(input_id):
+		return null
+	return input_id_to_state_id.read(input_id)
 
 # We use a special peer_id=0 to designate local peer.
 # This saves hustle in case get_tree().multiplayer.get_network_unique_id()
@@ -195,7 +208,7 @@ func get_local_peer():
 		local_peer = get_node("0")
 	
 	if not local_peer:
-		local_peer = SyncPeer.instance()
+		local_peer = SyncPeerScene.instance()
 		local_peer.name = '0'
 		self.add_child(local_peer)
 
@@ -204,6 +217,9 @@ func get_local_peer():
 # True if networking enabled and we're the Server
 func is_server():
 	return get_tree() and get_tree().network_peer and get_tree().is_network_server()
+
+# Whether connection to server is currently active. Only maintained on Client.
+var _is_connected_to_server = false
 
 # True if networking enabled and we're a Client
 func is_client():
@@ -220,6 +236,49 @@ func get_sender_peer():
 func get_peer(peer_id:int):
 	return get_node(str(peer_id))
 
+# Shenanigans needed to calculate state_id_frac
+var _state_id_frac_fix = 0.0
+var _first_process_since_physics_process = true
+
+func fix_state_id_frac():
+	# try to make first call to _process() after _physics_process()
+	# always give integer state_id_frac !!!!
+	if _first_process_since_physics_process and SyncManager.state_id_frac_to_integer_reduction > 0:
+		_first_process_since_physics_process = false
+		_state_id_frac_fix = move_toward(
+			_state_id_frac_fix, 
+			Engine.get_physics_interpolation_fraction(), 
+			SyncManager.state_id_frac_to_integer_reduction
+		)
+
+# This scary logic figures out if client should skip some state_ids
+# or wait and render state_id two times in a row. This is needed in case
+# of clock desync between client and server, or short network failure.
+func fix_current_state_id(st_id:int)->int:
+	var should_be_current_state_id = int(clamp(st_id, _last_received_state_id, _last_received_state_id + SyncManager.client_interpolation_lag))
+	st_id = int(move_toward(st_id, should_be_current_state_id, 1))
+	# Refuse to extrapolate more than allowed by global settings
+	if st_id > _last_received_state_id + SyncManager.max_offline_extrapolation:
+		st_id = _last_received_state_id + SyncManager.max_offline_extrapolation
+	return st_id
+
+func set_state_id(_value):
+	pass # read-only
+func get_state_id():
+	return state_id
+
+# Getters and setters
+func get_state_id_frac():
+	if Engine.is_in_physics_frame():
+		return float(state_id)
+	var result = Engine.get_physics_interpolation_fraction() - _state_id_frac_fix
+	result = clamp(result, 0.0, 0.99)
+	return result + state_id
+
+func get_interpolation_state_id():
+	assert(is_client())
+	return max(1, get_state_id_frac() - SyncManager.client_interpolation_lag)
+
 func init_sync_property(p):
 	if is_client():
 		p.resize(client_interpolation_history_size)
@@ -230,7 +289,7 @@ func init_sync_property(p):
 # Signals from scene tree networking
 func _player_connected(peer_id=null):
 	if is_server() and peer_id > 0:
-		var peer = SyncPeer.instance()
+		var peer = SyncPeerScene.instance()
 		peer.name = str(peer_id)
 		self.add_child(peer)
 	elif not is_server() and peer_id == 1:
