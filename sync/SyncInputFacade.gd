@@ -36,17 +36,15 @@ func _get_value(action, input_id=-1):
 	var peer = get_parent()
 	if not peer:
 		return null
-	# If last input from this client was too long ago, return empty frame.
-	# This stops extrapolating last known frame after certain number of steps.
-	if peer.input_id - peer.storage.last_input_id > SyncManager.input_prediction_max_frames:
-		return null
 	if input_id < 0:
 		input_id = peer.input_id + 1 + input_id
+	# If last input from this client was too long ago, return empty frame.
+	# This stops extrapolating last known frame after certain number of steps.
+	if input_id - peer.storage.last_input_id > SyncManager.input_prediction_max_frames:
+		return null
 	var frame = peer.storage.read(input_id)
 	if not (action in frame):
 		return null
-	#if SyncManager.is_server() and not peer.is_local():
-	#	print('%s:inp/st=%s/%s' % [SyncManager.state_id, input_id, frame.get('__client_state_id__')]) # !!!
 	return frame[action]
 	
 func get_peer_id():

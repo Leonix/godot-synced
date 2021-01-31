@@ -67,11 +67,9 @@ var input_sendrate = 30
 var input_frames_min_batch = 3
 
 # Server: max number of frames to pool for later processing.
-# input_frames_history_size * input_sendrate should exceed Engine.iterations_per_second
+# (input_frames_history_size-2) * input_sendrate should exceed Engine.iterations_per_second
 # input_frames_history_size must exceed input_frames_min_batch.
-# Should not be too large a value or client may experience input delay 
-# in case of clock desync.
-var input_frames_history_size = 5
+var input_frames_history_size = 7
 
 # Server: when no input frames are ready from peer at the moment of consumption,
 # server is allowed to copy last valid frame this many times.

@@ -25,8 +25,9 @@ onready var facade = $SyncInputFacade
 var input_id = 0
 var stale_input_frame_count = 0
 
-# World State id visible on remote client during generation 
-# of current input frame being processed
+# Local peer: state_id during last sampled input
+# Remote peer: World State id visible on remote client during generation 
+# of last processed (or current being processed) input frame
 var state_id setget set_state_id, get_state_id
 
 # Input sendtable maps numbers (int) to InputMap actions (String) to use
@@ -55,7 +56,7 @@ func _physics_process(_delay):
 				if delay >= 2*target_delay:
 					_mtime_last_input_batch_sent = OS.get_system_time_msecs()
 				else:
-					_mtime_last_input_batch_sent -= delay
+					_mtime_last_input_batch_sent += delay
 				send_input_batch()
 
 	if not is_local():
@@ -77,8 +78,8 @@ func _physics_process(_delay):
 		# Short storage buffer size will keep clients from large input lag.
 		# !!! Skipping random frames has a major downside that server may miss
 		# an occasional just_pressed or just_released
-		if input_id <= storage.last_input_id - storage.container.size():
-			input_id = 1 + storage.last_input_id - storage.container.size()
+		if input_id-2 <= storage.last_input_id - storage.container.size():
+			input_id = storage.last_input_id + 1 - SyncManager.input_frames_min_batch
 
 		# TODO: it is possible to invent more complicated srategies, like skipping 
 		# current frame if it matches either previous or the next one...
@@ -145,6 +146,7 @@ func send_input_batch():
 	)
 
 func receive_input_batch(first_input_id: int, first_state_id: int, sendtable_ids: Array, node_paths: Array, values: Array):
+	assert(not is_local())
 	var frames = parse_input_batch(input_sendtable, sendtable_ids, node_paths, values)
 	for i in range(frames.size()):
 		frames[i]['__client_state_id__'] = first_state_id + i
@@ -310,9 +312,32 @@ func get_empty_input_frame():
 func is_local():
 	return self.name == '0'
 
-func get_state_id():
-	if SyncManager.is_client():
-		return int(facade._get_value('__client_state_id__'))
+func get_state_id()->int:
+	if not is_local():
+		# Shenanigans here require some explanation...
+		# Clients report their current rendered state_id with every input frame.
+		# We want to impose reasonable limits to how server accepts them.
+		# Clients should not be able to mess up with Time Depth by instantly changing
+		# how server perceives client's ping. Yet, we can't just always force
+		# sequential numbers because clock desync happens between client and server
+		# all the time, and loyal clients may require to skip or regain their
+		# state_id.
+		var curr_reported_state_id = facade._get_value('__client_state_id__', -1)
+		var prev_reported_state_id = facade._get_value('__client_state_id__', -2)
+		var prev2_reported_state_id = facade._get_value('__client_state_id__', -3)
+		if not curr_reported_state_id or not prev_reported_state_id or not prev2_reported_state_id or not storage.contains(input_id - 1):
+			if curr_reported_state_id:
+				return int(curr_reported_state_id)
+			return 0
+		if curr_reported_state_id == 1+prev_reported_state_id and prev_reported_state_id==1+prev2_reported_state_id:
+			# Nothing suspicious: three consecutive state_ids
+			return int(curr_reported_state_id)
+		# For suspicious frames, we force state_id calculated from an older value
+		# in hope to make it unprofitable to cheat by trying to change reported state_id
+		if storage.contains(input_id - 2):
+			return int(prev2_reported_state_id)+2
+		else:
+			return int(prev_reported_state_id)+1
 	return SyncManager.state_id
 func set_state_id(_value):
 	pass # read only
