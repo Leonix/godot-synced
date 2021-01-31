@@ -149,6 +149,40 @@ func get_input_facade(peer_unique_id):
 func synced_created(_sb, _spawner=null):
 	pass # !!! will be needed for client-owned propoerties
 
+# Used to sync server clock and client clock.
+var _old_received_state_id = 0
+var _last_received_state_id = 0
+var _old_received_state_mtime = 0
+var _last_received_state_mtime = 0
+
+# Maintain stats to calculate a running average
+# for server tickrate over (up to) last 1000 frames
+func update_received_state_id_and_mtime(new_server_state_id):
+	if _last_received_state_id >= new_server_state_id:
+		return
+	_last_received_state_id = new_server_state_id
+	_last_received_state_mtime = OS.get_system_time_msecs()
+	if _old_received_state_id == 0:
+		_old_received_state_id = _last_received_state_id
+		_old_received_state_mtime = _last_received_state_mtime
+		return
+	var new_state_diff = _last_received_state_id - _old_received_state_id
+	var new_time_diff = _last_received_state_mtime - _old_received_state_mtime
+	if new_state_diff > 1000:
+		_old_received_state_id = _last_received_state_id - 1000
+		_old_received_state_mtime = _last_received_state_mtime - (new_time_diff * 1000.0 / new_state_diff)
+	
+# This scary logic figures out if client should skip some state_ids
+# or wait and render state_id two times in a row. This is needed in case
+# of clock desync between client and server, or short network failure.
+func fix_current_state_id(st_id:int)->int:
+	var should_be_current_state_id = int(clamp(st_id, _last_received_state_id, _last_received_state_id + SyncManager.client_interpolation_lag))
+	st_id = int(move_toward(st_id, should_be_current_state_id, 1))
+	# Refuse to extrapolate more than allowed by global settings
+	if st_id > _last_received_state_id + SyncManager.max_offline_extrapolation:
+		st_id = _last_received_state_id + SyncManager.max_offline_extrapolation
+	return st_id
+
 # We use a special peer_id=0 to designate local peer.
 # This saves hustle in case get_tree().multiplayer.get_network_unique_id()
 # changes when peer connects and disconnects.

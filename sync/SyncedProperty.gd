@@ -172,7 +172,7 @@ func read(state_id: float):
 func write(state_id: int, value):
 	assert(ready_to_write(), "Attempt to write to SyncedProperty before container size is set.")
 	if debug_log:
-		print('%s[%d]=%s' % [name, state_id, value])
+		print('%s[%d]=%s' % [name, state_id, str(value) if not ready_to_read() or value != _get(-1) else '--'])
 	# Initial write must fill in the whole buffer
 	if last_index < 0:
 		last_index = 0
