@@ -167,13 +167,82 @@ func synced_created(synced:Synced, _spawner=null):
 # Keep track of all Synced objects belonging to players.
 # We'll need their positions in order to calcullate Time Depth.
 var _synced_belong_to_players = []
-func _update_synced_belong_to_players(before, after, synced):
-	if before != null:
-		if after == null:
-			_synced_belong_to_players.erase(synced)
-			return
-	if after != null:
-		_synced_belong_to_players.append(synced)
+func _update_synced_belong_to_players(before, after, synced: Synced):
+	if synced.ignore_peer_time_depth:
+		return
+	if before != null and after == null:
+		var new_arr = []
+		for wr in _synced_belong_to_players:
+			var synced2 = wr.get_ref()
+			if synced2 and synced2 != synced:
+				new_arr.append(synced2)
+		_synced_belong_to_players = new_arr
+	elif before == null and after != null:
+		_synced_belong_to_players.append(weakref(synced))
+		if not synced.synced_property('_td_position'):
+			# Need to track positions of stuff that belogs to players
+			# in order to calculate Time depth
+			if synced.get_parent() is Node2D or synced.get_parent() is Spatial:
+				synced.add_synced_property('_td_position', SyncedProperty.new({
+					missing_state_interpolation = SyncedProperty.NO_INTERPOLATION,
+					interpolation = SyncedProperty.NO_INTERPOLATION,
+					sync_strategy = SyncedProperty.DO_NOT_SYNC,
+					auto_sync_property = 'translation' if synced.get_parent() is Spatial else 'position'
+				}))
+
+func get_time_depth(target_coord):
+	return calculate_time_depth(target_coord)[0]
+
+func calculate_time_depth(target_coord):
+	# For each peer_id, find the closest object to target_coord
+	var candidates = {}
+	for wr in _synced_belong_to_players:
+		var synced = wr.get_ref()
+		if not synced:
+			continue
+		assert(synced is Synced and synced.belongs_to_peer_id != null)
+		var coord = get_coord(synced.get_parent())
+		if (coord is Vector3) != (target_coord is Vector3):
+			continue
+		var distance_squared = target_coord.distance_squared_to(coord)
+		if not (synced.belongs_to_peer_id in candidates) or candidates[0] > distance_squared:
+			candidates[synced.belongs_to_peer_id] = [
+				distance_squared,
+				synced.belongs_to_peer_id,
+			]
+	return _td_calc(candidates.values())
+
+func _td_calc(players: Array):
+	# No reason to bend spacetime when there's only one player
+	if players.size() <= 1:
+		return [0, null]
+
+	# we are only interested in two closest players
+	players.sort_custom(self, '_td_calc_sorter')
+	players = players.slice(0, 1)
+	assert(2 == players.size() and players[0][0] <= players[1][0])
+	var distance_to_closest_sq = players[0][0]
+	var distance_to_second_closest_sq = players[1][0]
+	if distance_to_second_closest_sq <= 0:
+		return [0, null] # paranoid mode
+
+	# We want time depth at coordinate of each player to be equal to plat player's delay
+	# When distance is equal to both players, time depth is 0
+	# Far away from either player, time depth is 0
+	var closest_peer_id = players[0][1]
+	var half_delay = get_state_id() - get_peer(closest_peer_id).state_id
+	return [
+		int(half_delay * (1 - clamp(distance_to_closest_sq / distance_to_second_closest_sq, 0, 1))),
+		closest_peer_id
+	]
+func _td_calc_sorter(a, b):
+	return a[0] < b[0]
+
+func get_coord(obj):
+	if obj is Spatial:
+		return obj.to_global(Vector3(0, 0, 0))
+	elif obj is Node2D:
+		return obj.to_global(Vector2(0, 0))
 
 # Used to sync server clock and client clock.
 # Only maintained on Client
@@ -280,9 +349,6 @@ func fix_current_state_id(st_id:int)->int:
 	if st_id > _last_received_state_id + SyncManager.max_offline_extrapolation:
 		st_id = _last_received_state_id + SyncManager.max_offline_extrapolation
 	return st_id
-
-func get_time_depth(coord):
-	return 4 # !!! add a proper time depth calculation
 
 func get_interpolation_state_id():
 	assert(is_client())

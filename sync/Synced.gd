@@ -32,6 +32,12 @@ class_name Synced
 # 0 here always means local player. null means no one (dummy input).
 var belongs_to_peer_id = null setget set_belongs_to_peer_id
 
+# Even if this Synced belongs to a certain peer, ignore its coordinate
+# when calculating time depth. Should be false on players' avatars.
+# Safe to leave false on AI-controlled entities.
+# Must be true on UI elements if they use belongs_to_peer_id != null.
+export var ignore_peer_time_depth = false
+
 # Should be set by whoever instanced scene containing this before attaching to scene tree.
 # Affects how Client-Side-Predicted new entities locate their Server counterparts.
 var spawner: Synced = null # !!! CSP-created nodes are not implemented yet
@@ -96,8 +102,9 @@ func _physics_process(_delta):
 				if is_csp_enabled(property):
 					pass # can't correct prediction errors though
 				elif int(SyncManager.get_interpolation_state_id()) > property.last_state_id:
-					if property.debug_log: print('ext_emp_f')
-					property.write(int(SyncManager.get_interpolation_state_id()), property._get(-1))
+					if property.ready_to_read():
+						if property.debug_log: print('ext_emp_f')
+						property.write(int(SyncManager.get_interpolation_state_id()), property._get(-1))
 
 	# Send data frame fromo server to clients if time has come
 	if SyncManager.is_server():
@@ -358,8 +365,9 @@ puppet func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, val
 			if property.debug_log: print('srv_data')
 			property.write(st_id, frame[prop])
 		elif property.last_state_id < st_id:
-			if property.debug_log: print('srv_no_data')
-			property.write(st_id, property._get(-1))
+			if property.ready_to_read():
+				if property.debug_log: print('srv_no_data')
+				property.write(st_id, property._get(-1))
 		
 	_last_frame_had_data = frame.size() > 0
 	SyncManager.update_received_state_id_and_mtime(st_id)
@@ -439,6 +447,18 @@ func correct_prediction_error(property:SyncedProperty, input_id:int, value):
 	if property.debug_log: print('csp_err')
 	for i in range(st_id, property.last_state_id+1):
 		property._set(i, property._get(i) - error)
+
+func reset_history():
+	#return # !!!
+	var real_coord = SyncManager.get_coord(get_parent())
+	var time_depth = SyncManager.get_time_depth(real_coord)
+	if time_depth <= 0:
+		return
+	var last_valid_state_id = SyncManager.state_id - time_depth
+	for prop in sync_properties:
+		var property = sync_properties[prop]
+		property.last_index = property._get_index(last_valid_state_id)
+		property.last_state_id = last_valid_state_id # !!! quick and dirty, can't do that
 
 # Returns object to serve as a drop-in replacement for builtin Input to proxy
 # player input through. On server, this receives remote input over the net.

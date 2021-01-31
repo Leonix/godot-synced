@@ -9,6 +9,7 @@ var _speed = DEFAULT_SPEED
 onready var _screen_size = get_viewport_rect().size
 
 onready var synced = $synced
+onready var area = $TimeDepth/area
 
 func _physics_process(delta):
 	# Don't have to do anything here unless we're the server.
@@ -21,20 +22,28 @@ func _physics_process(delta):
 		_speed += delta
 		position += _speed * delta * direction
 
+	# !!! have to use some sort of separate coordinate storage when checking 
+	# for interactions. Basically, we draw one set of things, but check 
+	# for interactions another set of things.
+	# OR at different time...
+	var coord = area.global_position 
+
 	# Check screen bounds to make ball bounce.
-	if (position.y < 0 and direction.y < 0) or (position.y > _screen_size.y and direction.y > 0):
+	if (coord.y < 0 and direction.y < 0) or (coord.y > _screen_size.y and direction.y > 0):
+		reset_history()
 		direction.y = -direction.y
 
 	# Check if scored
-	if position.x < 0:
+	if coord.x < 0:
 		get_parent().update_score(false)
 		_reset_ball(false)
-	elif position.x > _screen_size.x:
+	elif coord.x > _screen_size.x:
 		get_parent().update_score(true)
 		_reset_ball(true)
 
 # called by paddle.gd when ball hits the paddle
 func bounce(left, random):
+	reset_history()
 	if left:
 		direction.x = abs(direction.x)
 	else:
@@ -54,3 +63,9 @@ func _reset_ball(for_left):
 	else:
 		direction = Vector2.RIGHT
 	_speed = DEFAULT_SPEED
+
+# !!! When interactions change behaviour predicted before, have to tell the engine somehow
+func reset_history():
+	synced.reset_history()
+	synced.position = area.global_position
+	position = area.global_position
