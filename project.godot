@@ -28,12 +28,18 @@ _global_script_classes=[ {
 "class": "SyncedProperty",
 "language": "GDScript",
 "path": "res://sync/SyncedProperty.gd"
+}, {
+"base": "Node",
+"class": "TimeDepth",
+"language": "GDScript",
+"path": "res://sync/TimeDepth.gd"
 } ]
 _global_script_class_icons={
 "SyncInputFacade": "",
 "SyncPeer": "",
 "Synced": "",
-"SyncedProperty": ""
+"SyncedProperty": "",
+"TimeDepth": ""
 }
 
 [application]

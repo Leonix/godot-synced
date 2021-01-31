@@ -281,6 +281,13 @@ func fix_current_state_id(st_id:int)->int:
 		st_id = _last_received_state_id + SyncManager.max_offline_extrapolation
 	return st_id
 
+func get_time_depth(coord):
+	return 4 # !!! add a proper time depth calculation
+
+func get_interpolation_state_id():
+	assert(is_client())
+	return max(1, get_state_id_frac() - SyncManager.client_interpolation_lag)
+
 # Getters and setters
 
 func set_state_id(_value):
@@ -294,10 +301,6 @@ func get_state_id_frac():
 	var result = Engine.get_physics_interpolation_fraction() - _state_id_frac_fix
 	result = clamp(result, 0.0, 0.99)
 	return result + state_id
-
-func get_interpolation_state_id():
-	assert(is_client())
-	return max(1, get_state_id_frac() - SyncManager.client_interpolation_lag)
 
 # Signals from scene tree networking
 func _player_connected(peer_id=null):

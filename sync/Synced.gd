@@ -60,6 +60,7 @@ var _last_frame_had_data = true
 
 # True is there's at least one property that requires to sync directly to parent
 var _should_auto_update_parent = false
+var _should_auto_read_parent = false
 
 # When belongs_to_peer_id changes.
 # Arguments are either int or null.
@@ -79,7 +80,7 @@ func _notification(what):
 func _physics_process(_delta):
 	# _physics_process() of child nodes runs after parent node.
 	# Copy data from parent if set up to do so
-	if _should_auto_update_parent and not SyncManager.is_client():
+	if _should_auto_read_parent and not SyncManager.is_client():
 		for property in get_children():
 			if property.auto_sync_property != '':
 				_auto_sync_from_parent(property)
@@ -130,11 +131,14 @@ func _auto_sync_to_parent(property):
 	get_parent().set(property.auto_sync_property, self._get(property.name))
 
 func setup_auto_update_parent():
+	_should_auto_read_parent = false
 	_should_auto_update_parent = false
 	for property in get_children():
 		if property.auto_sync_property != '':
-			_should_auto_update_parent = true
-			break
+			_should_auto_read_parent = true
+			if property.sync_strategy != SyncedProperty.DO_NOT_SYNC:
+				_should_auto_update_parent = true
+				break
 	if not SyncManager.is_server():
 		set_process_internal(_should_auto_update_parent)
 
@@ -161,28 +165,36 @@ func prepare_sync_properties():
 	var add_last = []
 	for property in get_children():
 		assert(property is SyncedProperty, 'All children of Synced must be SyncedProperty (looking at you, %s)' % property.name)
-		if not property.ready_to_write():
-			if not property.ready_to_read():
-				if SyncManager.is_client():
-					property.resize(SyncManager.client_interpolation_history_size)
-				else:
-					property.resize(SyncManager.server_property_history_size)
-			match property.sync_strategy:
-				SyncedProperty.UNRELIABLE_SYNC:
-					result[property.name] = property
-				SyncedProperty.AUTO_SYNC:
-					add_later.push_front(property)
-				SyncedProperty.RELIABLE_SYNC:
-					add_later.append(property)
-				SyncedProperty.DO_NOT_SYNC:
-					add_last.push_front(property)
-				SyncedProperty.CLIENT_OWNED:
-					add_last.append(property)
-				var unknown_strategy:
-					assert(false, 'Unknown sync strategy %s' % unknown_strategy)
+		if not property.ready_to_read():
+			if SyncManager.is_client():
+				property.resize(SyncManager.client_interpolation_history_size)
+			else:
+				property.resize(SyncManager.server_property_history_size)
+		match property.sync_strategy:
+			SyncedProperty.UNRELIABLE_SYNC:
+				result[property.name] = property
+			SyncedProperty.AUTO_SYNC:
+				add_later.push_front(property)
+			SyncedProperty.RELIABLE_SYNC:
+				add_later.append(property)
+			SyncedProperty.DO_NOT_SYNC:
+				add_last.push_front(property)
+			SyncedProperty.CLIENT_OWNED:
+				add_last.append(property)
+			var unknown_strategy:
+				assert(false, 'Unknown sync strategy %s' % unknown_strategy)
 	for property in add_later + add_last:
 		result[property.name] = property
 	return result
+
+func add_synced_property(name, property: SyncedProperty):
+	assert(property.sync_strategy == SyncedProperty.DO_NOT_SYNC)
+	assert(sync_properties == null or not (name in sync_properties))
+	property.name = name
+	add_child(property)
+	sync_properties = prepare_sync_properties()
+	setup_auto_update_parent()
+	return property
 
 # Dictionary {property_name = state_id} with state_ids last reliably sent
 # to given player (or all players).
@@ -441,6 +453,8 @@ func is_local_peer():
 	return belongs_to_peer_id == 0
 
 func synced_property(name:String)->SyncedProperty:
+	if not sync_properties:
+		return null
 	return sync_properties.get(name)
 
 func set_belongs_to_peer_id(peer_id):

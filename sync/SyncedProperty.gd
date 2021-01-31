@@ -380,6 +380,7 @@ func ready_to_write():
 
 static func is_valid_option(name):
 	match name:
+		'auto_sync_property', 'client_side_prediction', 'debug_log', \
 		'sync_strategy', 'strat_stale_delay', 'interpolation', \
 		'missing_state_interpolation', 'max_extrapolation', 'container':
 			return true

@@ -17,6 +17,8 @@ func _process(_delta):
 			_hide_you_label()
 
 func _physics_process(delta):
+#	if name == 'Player1':
+#		synced.synced_property('position').debug_log = true
 	_motion = synced.input.get_action_strength("move_down") - synced.input.get_action_strength("move_up")
 	_motion *= MOTION_SPEED
 	position.y = clamp(position.y + _motion * delta, 16, _screen_size_y - 16)
@@ -27,4 +29,4 @@ func _hide_you_label():
 
 func _on_paddle_area_enter(area):
 	# Random for new direction generated on each peer.
-	area.bounce(left, randf())
+	area.find_parent('Ball').bounce(left, randf())
