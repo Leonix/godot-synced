@@ -159,8 +159,21 @@ func get_input_facade(peer_unique_id):
 	return get_node("%s/SyncInputFacade" % peer_unique_id)
 
 # Instances of Synced report here upon creation
-func synced_created(_sb, _spawner=null):
-	pass # !!! will be needed for client-owned propoerties
+func synced_created(synced:Synced, _spawner=null):
+	synced.connect("peer_id_changed", self, "_update_synced_belong_to_players", [synced])
+	if synced.belongs_to_peer_id != null:
+		_update_synced_belong_to_players(null, synced.belongs_to_peer_id, synced)
+
+# Keep track of all Synced objects belonging to players.
+# We'll need their positions in order to calcullate Time Depth.
+var _synced_belong_to_players = []
+func _update_synced_belong_to_players(before, after, synced):
+	if before != null:
+		if after == null:
+			_synced_belong_to_players.erase(synced)
+			return
+	if after != null:
+		_synced_belong_to_players.append(synced)
 
 # Used to sync server clock and client clock.
 # Only maintained on Client
@@ -232,6 +245,7 @@ func get_sender_peer():
 		return null
 	return get_node(str(peer_id))
 
+# Fetch remote or local SyncPeer by id
 func get_peer(peer_id:int):
 	return get_node(str(peer_id))
 
@@ -239,9 +253,9 @@ func get_peer(peer_id:int):
 var _state_id_frac_fix = 0.0
 var _first_process_since_physics_process = true
 
+# idea behind this is to make first call to _process() after _physics_process()
+# always give integer state_id_frac
 func fix_state_id_frac():
-	# try to make first call to _process() after _physics_process()
-	# always give integer state_id_frac !!!!
 	if _first_process_since_physics_process and SyncManager.state_id_frac_to_integer_reduction > 0:
 		_first_process_since_physics_process = false
 		_state_id_frac_fix = move_toward(
@@ -267,12 +281,13 @@ func fix_current_state_id(st_id:int)->int:
 		st_id = _last_received_state_id + SyncManager.max_offline_extrapolation
 	return st_id
 
+# Getters and setters
+
 func set_state_id(_value):
 	pass # read-only
 func get_state_id():
 	return state_id
 
-# Getters and setters
 func get_state_id_frac():
 	if Engine.is_in_physics_frame():
 		return float(state_id)
@@ -283,13 +298,6 @@ func get_state_id_frac():
 func get_interpolation_state_id():
 	assert(is_client())
 	return max(1, get_state_id_frac() - SyncManager.client_interpolation_lag)
-
-func init_sync_property(p):
-	if is_client():
-		p.resize(client_interpolation_history_size)
-	else:
-		p.resize(server_property_history_size)
-	return p
 
 # Signals from scene tree networking
 func _player_connected(peer_id=null):

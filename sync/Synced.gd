@@ -61,6 +61,10 @@ var _last_frame_had_data = true
 # True is there's at least one property that requires to sync directly to parent
 var _should_auto_update_parent = false
 
+# When belongs_to_peer_id changes.
+# Arguments are either int or null.
+signal peer_id_changed(before, after)
+
 func _ready():
 	update_csp_status()
 	setup_auto_update_parent()
@@ -158,7 +162,11 @@ func prepare_sync_properties():
 	for property in get_children():
 		assert(property is SyncedProperty, 'All children of Synced must be SyncedProperty (looking at you, %s)' % property.name)
 		if not property.ready_to_write():
-			SyncManager.init_sync_property(property)
+			if not property.ready_to_read():
+				if SyncManager.is_client():
+					property.resize(SyncManager.client_interpolation_history_size)
+				else:
+					property.resize(SyncManager.server_property_history_size)
 			match property.sync_strategy:
 				SyncedProperty.UNRELIABLE_SYNC:
 					result[property.name] = property
@@ -438,16 +446,20 @@ func synced_property(name:String)->SyncedProperty:
 func set_belongs_to_peer_id(peer_id):
 	if peer_id != 0 and peer_id == multiplayer.get_network_unique_id():
 		peer_id = 0
+	if peer_id == belongs_to_peer_id:
+		return
 	var should_update_csp = belongs_to_peer_id == null
 	if not should_update_csp:
 		if belongs_to_peer_id > 0 and peer_id == 0:
 			should_update_csp = true
 		elif belongs_to_peer_id == 0 and peer_id > 0:
 			should_update_csp = true
+	var old_peer_id = belongs_to_peer_id
 	belongs_to_peer_id = peer_id
 	if should_update_csp:
 		update_csp_status()
-
+	emit_signal("peer_id_changed", old_peer_id, belongs_to_peer_id)
+	
 func _get(prop):
 	var p = sync_properties.get(prop)
 	if p:
