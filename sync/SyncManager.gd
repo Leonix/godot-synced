@@ -115,9 +115,6 @@ var state_id_frac: float setget , get_state_id_frac
 
 var SyncPeerScene = preload("res://sync/SyncPeer.tscn")
 
-# On Client, CSP correction must remember when we recorded each input frame
-onready var input_id_to_state_id = SyncPeer.CircularBuffer.new(client_interpolation_history_size, 0)
-
 func _ready():
 	get_local_peer()
 	get_tree().connect("network_peer_connected", self, "_player_connected")
@@ -135,7 +132,7 @@ func _physics_process(_delta):
 	# Fix clock desync
 	if SyncManager.is_client():
 		state_id = fix_current_state_id(state_id)
-		input_id_to_state_id.write(get_local_peer().input_id, state_id)
+		_input_id_to_state_id.write(get_local_peer().input_id, state_id)
 
 	# Server: update Client-owned properties of all Synced objects, 
 	# taking them from new input frame from each client
@@ -144,10 +141,10 @@ func _physics_process(_delta):
 
 # Called from SyncPeer. RPC goes through this proxy rather than SyncPeer itself
 # because of differences in node path between server and client.
-master func receive_input_batch(first_input_id: int, sendtable_ids: Array, node_paths: Array, values: Array):
+master func receive_input_batch(first_input_id: int, first_state_id: int, sendtable_ids: Array, node_paths: Array, values: Array):
 	var peer = get_sender_peer()
 	if peer:
-		peer.receive_input_batch(first_input_id, sendtable_ids, node_paths, values)
+		peer.receive_input_batch(first_input_id, first_state_id, sendtable_ids, node_paths, values)
 
 # Returns an object to read player's input through,
 # like a (limited) drop-in replacement of Godot's Input class.
@@ -168,6 +165,7 @@ func synced_created(_sb, _spawner=null):
 	pass # !!! will be needed for client-owned propoerties
 
 # Used to sync server clock and client clock.
+# Only maintained on Client
 var _old_received_state_id = 0
 var _last_received_state_id = 0
 var _old_received_state_mtime = 0
@@ -189,12 +187,15 @@ func update_received_state_id_and_mtime(new_server_state_id):
 	if new_state_diff > 1000:
 		_old_received_state_id = _last_received_state_id - 1000
 		_old_received_state_mtime = _last_received_state_mtime - (new_time_diff * 1000.0 / new_state_diff)
+
+# On Client, CSP correction must remember when we recorded each input frame
+onready var _input_id_to_state_id = SyncPeer.CircularBuffer.new(int(max(client_interpolation_history_size, input_frames_history_size)), 0)
 	
 func input_id_to_state_id(input_id:int):
 	assert(is_client())
-	if not input_id_to_state_id.contains(input_id):
+	if not _input_id_to_state_id.contains(input_id):
 		return null
-	return input_id_to_state_id.read(input_id)
+	return _input_id_to_state_id.read(input_id)
 
 # We use a special peer_id=0 to designate local peer.
 # This saves hustle in case get_tree().multiplayer.get_network_unique_id()
@@ -255,8 +256,14 @@ func fix_state_id_frac():
 # or wait and render state_id two times in a row. This is needed in case
 # of clock desync between client and server, or short network failure.
 func fix_current_state_id(st_id:int)->int:
+	assert(is_client())
 	var should_be_current_state_id = int(clamp(st_id, _last_received_state_id, _last_received_state_id + SyncManager.client_interpolation_lag))
-	st_id = int(move_toward(st_id, should_be_current_state_id, 1))
+	if abs(should_be_current_state_id - st_id) > SyncManager.client_interpolation_lag + SyncManager.max_offline_extrapolation:
+		# Instantly jump if difference is too large
+		st_id = should_be_current_state_id
+	else:
+		# Gradually move towards proper value
+		st_id = int(move_toward(st_id, should_be_current_state_id, 1))
 	# Refuse to extrapolate more than allowed by global settings
 	if st_id > _last_received_state_id + SyncManager.max_offline_extrapolation:
 		st_id = _last_received_state_id + SyncManager.max_offline_extrapolation
@@ -294,6 +301,11 @@ func _player_connected(peer_id=null):
 		self.add_child(peer)
 	elif not is_server() and peer_id == 1:
 		_is_connected_to_server = true
+		_last_received_state_mtime = 0
+		_old_received_state_mtime = 0
+		_last_received_state_id = 0
+		_old_received_state_id = 0
+		state_id = 1
 
 func _player_disconnected(peer_id=null):
 	if is_server() and peer_id > 0:

@@ -45,6 +45,8 @@ func _get_value(action, input_id=-1):
 	var frame = peer.storage.read(input_id)
 	if not (action in frame):
 		return null
+	#if SyncManager.is_server() and not peer.is_local():
+	#	print('%s:inp/st=%s/%s' % [SyncManager.state_id, input_id, frame.get('__client_state_id__')]) # !!!
 	return frame[action]
 	
 func get_peer_id():

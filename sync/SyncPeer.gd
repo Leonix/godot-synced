@@ -25,6 +25,10 @@ onready var facade = $SyncInputFacade
 var input_id = 0
 var stale_input_frame_count = 0
 
+# World State id visible on remote client during generation 
+# of current input frame being processed
+var state_id setget set_state_id, get_state_id
+
 # Input sendtable maps numbers (int) to InputMap actions (String) to use
 # for communication between client and server. Sendtable on client 
 # must exactly match sendtable on server.
@@ -132,11 +136,18 @@ func send_input_batch():
 
 	var packed_batch = pack_input_batch(input_sendtable, frames)
 	#print('sending input batch first_input_id=%s ' % first_input_id, frames)
-	SyncManager.rpc_unreliable('receive_input_batch', first_input_id, PoolIntArray(packed_batch[0]), PoolStringArray(packed_batch[1]), packed_batch[2])
+	SyncManager.rpc_unreliable('receive_input_batch', 
+		first_input_id, 
+		SyncManager.input_id_to_state_id(first_input_id),
+		PoolIntArray(packed_batch[0]), 
+		PoolStringArray(packed_batch[1]), 
+		packed_batch[2]
+	)
 
-func receive_input_batch(first_input_id: int, sendtable_ids: Array, node_paths: Array, values: Array):
+func receive_input_batch(first_input_id: int, first_state_id: int, sendtable_ids: Array, node_paths: Array, values: Array):
 	var frames = parse_input_batch(input_sendtable, sendtable_ids, node_paths, values)
 	for i in range(frames.size()):
+		frames[i]['__client_state_id__'] = first_state_id + i
 		storage.write(first_input_id + i, frames[i])
 
 static func pack_input_batch(sendtable, frames):
@@ -298,6 +309,13 @@ func get_empty_input_frame():
 
 func is_local():
 	return self.name == '0'
+
+func get_state_id():
+	if SyncManager.is_client():
+		return int(facade._get_value('__client_state_id__'))
+	return SyncManager.state_id
+func set_state_id(_value):
+	pass # read only
 
 # Maps input_id to values, up to buffer size.
 # In case of SyncPeer, values are Dictionaries with input data.
