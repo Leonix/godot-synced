@@ -533,6 +533,10 @@ func _set(prop, value):
 			if SyncManager.is_client():
 				if not is_csp_enabled(p) and p.sync_strategy != SyncedProperty.CLIENT_OWNED:
 					return true
+			# When server does not write to an interpolated property for some time,
+			# the first write should interlpolate over 1 state, not many.
+			if p.last_state_id < SyncManager.state_id-1:
+				p.write(SyncManager.state_id-1, p.read(-1))
 		if p.debug_log: print('lcl_data')
 		p.write(SyncManager.state_id, value)
 		return true
