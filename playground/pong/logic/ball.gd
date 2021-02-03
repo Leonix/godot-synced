@@ -9,7 +9,7 @@ var _speed = DEFAULT_SPEED
 onready var _screen_size = get_viewport_rect().size
 
 onready var synced = $synced
-onready var area = $TimeDepth/area
+onready var area = $Aligned/area
 
 func _physics_process(delta):
 	# Don't have to do anything here unless we're the server.

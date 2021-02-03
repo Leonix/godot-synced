@@ -4,7 +4,7 @@
 [ext_resource path="res://playground/pong/ball.png" type="Texture" id=2]
 [ext_resource path="res://sync/SyncedProperty.gd" type="Script" id=3]
 [ext_resource path="res://sync/Synced.gd" type="Script" id=4]
-[ext_resource path="res://sync/TimeDepth.gd" type="Script" id=5]
+[ext_resource path="res://sync/Aligned.gd" type="Script" id=5]
 
 [sub_resource type="CircleShape2D" id=1]
 radius = 5.11969
@@ -28,13 +28,13 @@ interpolation = 1
 missing_state_interpolation = 1
 auto_sync_property = "position"
 
-[node name="TimeDepth" type="Node2D" parent="."]
+[node name="Aligned" type="Node2D" parent="."]
 script = ExtResource( 5 )
 
-[node name="Sprite" type="Sprite" parent="TimeDepth"]
+[node name="Sprite" type="Sprite" parent="Aligned"]
 texture = ExtResource( 2 )
 
-[node name="area" type="Area2D" parent="TimeDepth"]
+[node name="area" type="Area2D" parent="Aligned"]
 
-[node name="Shape" type="CollisionShape2D" parent="TimeDepth/area"]
+[node name="Shape" type="CollisionShape2D" parent="Aligned/area"]
 shape = SubResource( 1 )

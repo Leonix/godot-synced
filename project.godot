@@ -10,6 +10,11 @@ config_version=4
 
 _global_script_classes=[ {
 "base": "Node",
+"class": "Aligned",
+"language": "GDScript",
+"path": "res://sync/Aligned.gd"
+}, {
+"base": "Node",
 "class": "SyncInputFacade",
 "language": "GDScript",
 "path": "res://sync/SyncInputFacade.gd"
@@ -28,18 +33,13 @@ _global_script_classes=[ {
 "class": "SyncedProperty",
 "language": "GDScript",
 "path": "res://sync/SyncedProperty.gd"
-}, {
-"base": "Node",
-"class": "TimeDepth",
-"language": "GDScript",
-"path": "res://sync/TimeDepth.gd"
 } ]
 _global_script_class_icons={
+"Aligned": "",
 "SyncInputFacade": "",
 "SyncPeer": "",
 "Synced": "",
-"SyncedProperty": "",
-"TimeDepth": ""
+"SyncedProperty": ""
 }
 
 [application]

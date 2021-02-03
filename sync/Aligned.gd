@@ -1,25 +1,25 @@
 extends Node
-class_name TimeDepth
+class_name Aligned
 
 #
-# TimeDepth node allows to set up lag compensation technique for efficient continuous
+# Aligned node allows to set up lag compensation technique for efficient continuous
 # collision detection or (local, non-ranged) hit-scans every frame.
 # Instead of applying and reverting lag compensation on demand every frame,
 # this node keeps part of scene tree sort-of lag-compensated at all times.
 # 
-# Attach this script to a Node2D or a Spatial. TimeDepth keeps changing its Transform
-# to make an illusion that children of TimeDepth are positioned and rotated as if
+# Attach this script to a Node2D or a Spatial. `Aligned` keeps changing its Transform
+# to make an illusion that children of Aligned are positioned and rotated as if
 # being in the past, according to global Time Depth value of parent's position
 # relative to all players.
 #
 # Transform and rotation from this node are only applied on Server.
-# TimeDepth does nothing to compendate how clients see the world.
+# `Aligned` does nothing to compendate how clients see the world.
 # For cliend-side counterpart, see SyncedProperty.time_depth
 #
 
 onready var synced: Synced
 
-# TimeDepth works by adding two SyncedProperties to sibling Synced object.
+# `Aligned` works by adding two SyncedProperties to sibling Synced object.
 # These properties are set up to track rotation and position (translation for Spatial)
 # and are never actually sent over the network to clients.
 var rotation_property: SyncedProperty
@@ -62,16 +62,53 @@ func _physics_process(_d):
 	if not position_property.ready_to_read() or not rotation_property.ready_to_read():
 		return
 
-	var real_coord = SyncManager.get_coord(get_parent())
-	assert(real_coord != null)
-	var old_state_id = SyncManager.state_id - SyncManager.get_time_depth(real_coord)
+	var old_state_id = get_time_depth_state_id()
 	for p in [position_property, rotation_property]:
 		var real_value = p._get(SyncManager.state_id)
 		var old_value = p._get(old_state_id)
 		self.set(p.auto_sync_property, old_value - real_value)
 		#print('%s=%s' % [p.auto_sync_property, old_value - real_value])
 
+func get_time_depth_state_id():
+	var real_coord = synced.get('_td_position')
+	if real_coord == null:
+		return SyncManager.state_id
+	return SyncManager.state_id - SyncManager.get_time_depth(real_coord)
+
 func _get_synced_sibling():
 	for sibling in get_parent().get_children():
 		if sibling is Synced:
 			return sibling
+
+func _get(prop):
+	var p = synced.sync_properties._get(prop) if synced and synced.sync_properties else null
+	if not p:
+		return null
+	if SyncManager.is_client():
+		return synced._get(prop)
+
+	if p.sync_strategy == SyncedProperty.CLIENT_OWNED:
+		return synced._get(prop)
+	#if p.debug_log: print('aligned(%s)%s' % [
+	#	get_time_depth_state_id(), 
+	#	str(p.read(get_time_depth_state_id())) if p.changed(get_time_depth_state_id()-1) else '--'
+	#])
+	return p.read(get_time_depth_state_id())
+
+func _set(prop, value):
+	var p = synced.sync_properties.get(prop) if synced and synced.sync_properties else null
+	if not p:
+		return null
+	
+	assert(p.sync_strategy != SyncedProperty.CLIENT_OWNED, "Must not write to client-owned property via aligned.%s" % prop)
+	
+	if SyncManager.is_client():
+		# применяется сразу; Property переходит на время в режим Client-Side Predicted
+		pass # !!! TODO
+	else:
+		# откатывает историю до состояния state_id - time_depth; после этого применяет записанное значение. 
+		# Property таким образом переходит в режим CSP и начинает догонять фреймы из прошлого в настоящее.
+		pass # !!! TODO
+
+	
+	
