@@ -22,45 +22,24 @@ onready var synced: Synced
 # `Aligned` works by adding two SyncedProperties to sibling Synced object.
 # These properties are set up to track rotation and position (translation for Spatial)
 # and are never actually sent over the network to clients.
-var rotation_property: SyncedProperty
-var position_property: SyncedProperty
 
 func _ready():
 	# Make sure we're attached to either Spatial or Node2d
-	assert('rotation' in self and ('translation' in self or 'position' in self))
-	
+	assert(get_parent() is Spatial or get_parent() is Node2D, "Aligned node's parent must be either a Node2D or a Spatial.")
+	if get_parent() is Spatial:
+		assert('rotation' in self and 'translation' in self, "Aligned node must be set as script for a Spatial.")
+	else:
+		assert('rotation' in self and 'position' in self, "Aligned node must be set as script for a Node2D.")
 	synced = _get_synced_sibling()
 	assert(synced is Synced)
-
-	position_property = synced.synced_property('_td_position')
-	if position_property:
-		assert(rotation_property.auto_sync_property == ('translation' if 'translation' in self else 'position'))
-	else:
-		position_property = synced.add_synced_property('_td_position', SyncedProperty.new({
-			missing_state_interpolation = SyncedProperty.NO_INTERPOLATION,
-			interpolation = SyncedProperty.NO_INTERPOLATION,
-			sync_strategy = SyncedProperty.DO_NOT_SYNC,
-			auto_sync_property = 'translation' if 'translation' in self else 'position'
-		}))
-
-	rotation_property = synced.synced_property('_td_rotation')
-	if rotation_property:
-		assert(rotation_property.auto_sync_property == 'rotation')
-	else:
-		rotation_property = synced.add_synced_property('_td_rotation', SyncedProperty.new({
-			missing_state_interpolation = SyncedProperty.NO_INTERPOLATION,
-			interpolation = SyncedProperty.NO_INTERPOLATION,
-			sync_strategy = SyncedProperty.DO_NOT_SYNC,
-			auto_sync_property = 'rotation'
-		}))
 
 func _physics_process(_d):
 	# Only applies while on the server
 	if not SyncManager.is_server():
 		return
 
-	if not position_property.ready_to_read() or not rotation_property.ready_to_read():
-		return
+	var rotation_property = synced.get_rotation_property()
+	var position_property = synced.get_position_property()
 
 	var old_state_id = get_time_depth_state_id()
 	for p in [position_property, rotation_property]:
@@ -70,7 +49,7 @@ func _physics_process(_d):
 		#print('%s=%s' % [p.auto_sync_property, old_value - real_value])
 
 func get_time_depth_state_id():
-	var real_coord = synced.get('_td_position')
+	var real_coord = synced.get('position')
 	if real_coord == null:
 		return SyncManager.state_id
 	return SyncManager.state_id - SyncManager.get_time_depth(real_coord)
@@ -81,7 +60,7 @@ func _get_synced_sibling():
 			return sibling
 
 func _get(prop):
-	var p = synced.sync_properties._get(prop) if synced and synced.sync_properties else null
+	var p = synced.synced_properties.get(prop) if synced and synced.synced_properties else null
 	if not p:
 		return null
 	if SyncManager.is_client():
@@ -96,19 +75,13 @@ func _get(prop):
 	return p.read(get_time_depth_state_id())
 
 func _set(prop, value):
-	var p = synced.sync_properties.get(prop) if synced and synced.sync_properties else null
+	var p = synced.synced_properties.get(prop) if synced and synced.synced_properties else null
 	if not p:
 		return null
 	
 	assert(p.sync_strategy != SyncedProperty.CLIENT_OWNED, "Must not write to client-owned property via aligned.%s" % prop)
 	
 	if SyncManager.is_client():
-		# применяется сразу; Property переходит на время в режим Client-Side Predicted
-		pass # !!! TODO
+		[value] # !!! TODO
 	else:
-		# откатывает историю до состояния state_id - time_depth; после этого применяет записанное значение. 
-		# Property таким образом переходит в режим CSP и начинает догонять фреймы из прошлого в настоящее.
 		pass # !!! TODO
-
-	
-	

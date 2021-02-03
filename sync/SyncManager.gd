@@ -194,6 +194,8 @@ func get_time_depth(target_coord):
 	return calculate_time_depth(target_coord)[0]
 
 func calculate_time_depth(target_coord):
+	if not is_server():
+		return [0, null]
 	# For each peer_id, find the closest object to target_coord
 	var candidates = {}
 	for wr in _synced_belong_to_players:
@@ -205,7 +207,7 @@ func calculate_time_depth(target_coord):
 		if (coord is Vector3) != (target_coord is Vector3):
 			continue
 		var distance_squared = target_coord.distance_squared_to(coord)
-		if not (synced.belongs_to_peer_id in candidates) or candidates[0] > distance_squared:
+		if not (synced.belongs_to_peer_id in candidates) or candidates[synced.belongs_to_peer_id][0] > distance_squared:
 			candidates[synced.belongs_to_peer_id] = [
 				distance_squared,
 				synced.belongs_to_peer_id,

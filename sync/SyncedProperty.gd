@@ -73,9 +73,6 @@ enum {
 	# Always enable Client-Side-Prediction
 	ALWAYS_CSP
 }
-# Allow client-side predicted values for this property
-export(int, 'NO_CSP', 'IF_BELONGS_TO_LOCAL_PEER_CSP', 'ALWAYS_CSP') var client_side_prediction = NO_CSP
-
 # Array-like storage place for historic values.
 # This is used as a circular buffer. We keep track of last written index self.last_index,
 # and loop over when reach the end of allocated container space.
@@ -380,8 +377,14 @@ func ready_to_write():
 
 static func is_valid_option(name):
 	match name:
-		'auto_sync_property', 'client_side_prediction', 'debug_log', \
+		'auto_sync_property', 'debug_log', \
 		'sync_strategy', 'strat_stale_delay', 'interpolation', \
 		'missing_state_interpolation', 'max_extrapolation', 'container':
 			return true
 	return false
+
+# Whether a recent interaction enabled client-side-prediction for this property.
+# Client-side-predicted properties has part of their recent history erased
+# and gradually regain frames, catching up with the rest of the simulated world.
+func is_client_side_predicted():
+	return false # !!!! not implemented yet
