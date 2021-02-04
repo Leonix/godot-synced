@@ -62,17 +62,6 @@ export(int, 'NO_INTERPOLATION', 'LINEAR_INTERPOLATION') var missing_state_interp
 # when state_id requested from the future
 export var max_extrapolation = 15
 
-# possible client-side-prediction strategies
-enum {
-	# Client-Side Prediction is disabled
-	NO_CSP,
-	
-	# Only enable CSP if Synced belongs to local peer
-	IF_BELONGS_TO_LOCAL_PEER_CSP,
-	
-	# Always enable Client-Side-Prediction
-	ALWAYS_CSP
-}
 # Array-like storage place for historic values.
 # This is used as a circular buffer. We keep track of last written index self.last_index,
 # and loop over when reach the end of allocated container space.
@@ -173,7 +162,12 @@ func read(state_id: float):
 func write(state_id: int, value):
 	assert(ready_to_write(), "Attempt to write to SyncedProperty before container size is set.")
 	if debug_log:
-		print('%s[%d]=%s' % [name, state_id, str(value) if not ready_to_read() or value != _get(-1) else '--'])
+		var str_value = '-'
+		if not ready_to_read() or value != container[_get_index(state_id)]:
+			str_value = str(value)
+			if last_state_id >= state_id:
+				str_value = "%s->%s" % [container[_get_index(state_id)], str_value]
+		print('%s[%d]=%s' % [name, state_id, str_value])
 	# Initial write must fill in the whole buffer
 	if last_index < 0:
 		last_index = 0
@@ -406,13 +400,3 @@ static func is_valid_option(name):
 		'missing_state_interpolation', 'max_extrapolation', 'container':
 			return true
 	return false
-
-# Whether a recent interaction enabled client-side-prediction for this property.
-# Client-side-predicted properties has part of their recent history erased
-# and gradually regain frames, catching up with the rest of the simulated world.
-func is_client_side_predicted():
-	if SyncManager.is_server():
-		return last_rollback_to_state_id <= SyncManager.state_id and SyncManager.state_id < last_rollback_from_state_id*2 - last_rollback_to_state_id - 1
-	else:
-		# !!! TODO: not properly implemented for client yet
-		return false

@@ -65,6 +65,9 @@ var _last_frame_had_data = true
 var _should_auto_update_parent = false
 var _should_auto_read_parent = false
 
+# Set by Aligned sibling if exists. Enables Client-Side prediction for this node.
+var is_csp_enabled = false
+
 # When belongs_to_peer_id changes.
 # Arguments are either int or null.
 signal peer_id_changed(before, after)
@@ -82,12 +85,16 @@ func _notification(what):
 func _physics_process(_delta):
 	# _physics_process() of child nodes runs after parent node.
 	# Copy data from parent if set up to do so
-	if _should_auto_read_parent and not SyncManager.is_client():
+	if _should_auto_read_parent:
 		for property in get_children():
 			if property.auto_sync_property != '':
-				_auto_sync_from_parent(property)
+				if not SyncManager.is_client() or is_client_side_predicted(property):
+					_auto_sync_from_parent(property)
 
 	if SyncManager.is_client():
+
+		_update_prop_csp_tick()
+		
 		if not _last_frame_had_data:
 			# Last time we received an empty frame from Server.
 			# It means that no values changed and likely will not change soon.
@@ -95,7 +102,7 @@ func _physics_process(_delta):
 			# as if we receive it from server each frame.
 			for prop in synced_properties:
 				var property = synced_properties[prop]
-				if is_csp_enabled(property):
+				if is_client_side_predicted(property):
 					pass # can't correct prediction errors though
 				elif int(SyncManager.get_interpolation_state_id()) > property.last_state_id:
 					if property.ready_to_read():
@@ -120,7 +127,7 @@ func _auto_sync_all_to_parent():
 			if property.ready_to_read():
 				_auto_sync_to_parent(property)
 
-func _auto_sync_from_parent(property):
+func _auto_sync_from_parent(property: SyncedProperty):
 	assert(property.auto_sync_property)
 	var value = get_parent().get(property.auto_sync_property)
 	# SyncedProperties do not support null values because trying to
@@ -129,8 +136,10 @@ func _auto_sync_from_parent(property):
 	if property.debug_log: print('autosync_from_parent')
 	self._set(property.name, value)
 	
-func _auto_sync_to_parent(property):
+func _auto_sync_to_parent(property: SyncedProperty):
 	assert(property.auto_sync_property)
+	if is_client_side_predicted(property):
+		if property.debug_log: print('atsnc2prnt(%s)%s' % [SyncManager.get_interpolation_state_id(), _get(property.name)])
 	get_parent().set(property.auto_sync_property, self._get(property.name))
 
 func setup_auto_update_parent():
@@ -145,9 +154,61 @@ func setup_auto_update_parent():
 	if not SyncManager.is_server():
 		set_process_internal(_should_auto_update_parent)
 
+# Data structures kept on client to track current CSP status of properties
+var _prop_force_csp_until_input_id = {}
+var _prop_disable_csp_at_state_id = {}
+var _prop_is_server_csp = {}
+
+# Called every frame
+func _update_prop_csp_tick():
+	assert(SyncManager.is_client())
+	for prop in _prop_force_csp_until_input_id:
+		var input_id = _prop_force_csp_until_input_id[prop]
+		if input_id <= SyncManager.last_consumed_input_id:
+			var st_id = SyncManager._last_received_state_id
+			_prop_force_csp_until_input_id.erase(prop)
+			_prop_disable_csp_at_state_id[prop] = st_id + (st_id - SyncManager.input_id_to_state_id(SyncManager.last_consumed_input_id))
+
+# Called when data from server comes.
+func _update_prop_csp_netframe(enabled_sendtable_ids):
+	assert(SyncManager.is_client())
+	var sendtable_id = -1
+	for prop in synced_properties:
+		sendtable_id += 1
+		_prop_is_server_csp[prop] = enabled_sendtable_ids and sendtable_id in enabled_sendtable_ids
+
 # Whether client-side prediction is enabled for given property.
-func is_csp_enabled(property:SyncedProperty)->bool:
-	return property.is_client_side_predicted()
+# On server this means that recent history for the property has been rolled back.
+# On client this means that all writes to property are allowed and show right away,
+# and correction is applied later, eventually when data comes from the server.
+func is_client_side_predicted(property:SyncedProperty)->bool:
+	if SyncManager.is_server():
+		return property.last_rollback_to_state_id <= SyncManager.state_id and SyncManager.state_id < property.last_rollback_from_state_id*2 - property.last_rollback_to_state_id - 1
+	if not SyncManager.is_client():
+		return false;
+		
+	var prop = property.name
+
+	# CSP is forced on client at least until input_id that enabled CSP
+	# is consumed on server
+	if prop in _prop_force_csp_until_input_id:
+		var input_id = _prop_force_csp_until_input_id[prop]
+		if input_id > SyncManager.last_consumed_input_id:
+			#if property.debug_log: print('csp1')
+			return true
+			
+	# If server did not confirm CSP status, CSP is disabled after initial period forced above
+	if not _prop_is_server_csp.get(prop):
+		return false
+		
+	# CSP is disabled on client after several state frames even while server still 
+	# confirms CSP status (server probably enabled it because of another peer's interaction)
+	var state_id = _prop_disable_csp_at_state_id.get(prop)
+	if state_id != null and state_id >= SyncManager.state_id:
+		#if property.debug_log: print('csp2')
+		return true
+		
+	return false
 
 func prepare_synced_properties():
 	setup_position_sync()
@@ -237,25 +298,33 @@ func get_last_reliable_state_ids(peer_id=null)->Dictionary:
 # due to Time Depth calculations (!!! not implemented yet)
 # and hidden (masked) properties different for different players (!!! again)
 func send_all_data_frames():
+	assert(SyncManager.is_server())
 	
+	var csp_property_ids = null
+	var time_depth = null
+	if is_csp_enabled:
+		# Gather properties that are in client-side predicted mode
+		csp_property_ids = []
+		var sendtable_id = -1
+		for prop in synced_properties:
+			sendtable_id += 1
+			if is_client_side_predicted(synced_properties[prop]):
+				csp_property_ids.append(sendtable_id)
+		if csp_property_ids.size() <= 0:
+			csp_property_ids = null
+
+		# time depth only makes sense when we have a sibling Aligned
+		# i.e. when CSP is enabled
+		time_depth = calculate_time_depth()
+
 	# Can not batch Synced objects that have at least one client-side predicted 
 	# property because data has to contain input_id which is different for peers.
-	var contains_csp_property = false
-	for p in synced_properties:
-		if synced_properties[p].is_client_side_predicted():
-			contains_csp_property = true
-			break
-	var can_batch = not contains_csp_property
+	var can_batch = csp_property_ids == null
 
 	# Can not batch objects that have different hidden (masked) status 
 	# for different players
 	if can_batch:
 		pass # !!!
-	
-	# Can not batch objects when they seem at different state for different players
-	# (due to Time Depth)
-	if can_batch:
-		pass # !!! will probably have to prepare all data frames in advance and then compare
 
 	var this_frame_had_data = false
 	var state_id = SyncManager.state_id
@@ -264,7 +333,11 @@ func send_all_data_frames():
 	# If can batch, prepare data for first peer_id and send packet to everyone.
 	for peer_id in multiplayer.get_network_connected_peers():
 
-		match prepare_data_frame(get_last_reliable_state_ids(null if can_batch else peer_id)):
+		var time_depth_relative_to_peer = null
+		if time_depth and time_depth[1] != peer_id:
+			time_depth_relative_to_peer = time_depth
+
+		match prepare_data_frame(get_last_reliable_state_ids(null if can_batch else peer_id), time_depth_relative_to_peer):
 			[var sendtable, var reliable_frame, var unreliable_frame]:
 
 				# simulate packet loss
@@ -274,7 +347,7 @@ func send_all_data_frames():
 						drop_unreliable_frame = true
 
 				var last_consumed_input_id = null
-				if contains_csp_property:
+				if is_csp_enabled:
 					var peer = SyncManager.get_peer(peer_id)
 					if peer and not peer.is_stale_input():
 						last_consumed_input_id = peer.input_id
@@ -289,18 +362,22 @@ func send_all_data_frames():
 					if sendtable_ids != null:
 						sendtable_ids = PoolIntArray(data[0])
 					if can_batch:
-						rpc_unreliable('receive_data_frame', state_id, last_consumed_input_id, sendtable_ids, data[1])
+						rpc_unreliable('receive_data_frame', state_id, last_consumed_input_id, sendtable_ids, data[1], csp_property_ids)
 					else:
-						rpc_unreliable_id(peer_id, 'receive_data_frame', state_id, last_consumed_input_id, sendtable_ids, data[1])
+						rpc_unreliable_id(peer_id, 'receive_data_frame', state_id, last_consumed_input_id, sendtable_ids, data[1], csp_property_ids)
 
-				if reliable_frame_has_data or (_last_frame_had_data and not unreliable_frame_has_data):
+				if reliable_frame_has_data or (_last_frame_had_data and not unreliable_frame_has_data) or last_consumed_input_id:
 					
 					# When there's no reliable and no unreliable frame, we still need to send
-					# an empty packet so that client knows nothing changed this frame.
-					# Otherwise they will try to extrapolate. It's like a dot
+					# an empty packet so that 
+					# 1) client knows nothing changed this frame, and/or
+					# 2) client receives last_consumed_input_id and csp_property_ids.
+					# In case of (1), client otherwise will try to extrapolate. It's like a dot
 					# at the end of a sentence. We use reliable for the dot so that
 					# we only have to send it once.
-					if not reliable_frame_has_data and not unreliable_frame_has_data and _last_frame_had_data:
+					# In case of (2) we don't really need reliable, but things
+					# are complicated enough to try to optimize for that too.
+					if not reliable_frame_has_data:
 						reliable_frame = {} # make sure it's not null
 					
 					var data = pack_data_frame(sendtable, reliable_frame)
@@ -308,14 +385,14 @@ func send_all_data_frames():
 					if sendtable_ids != null:
 						sendtable_ids = PoolIntArray(data[0])
 					if can_batch:
-						rpc('receive_data_frame', state_id, last_consumed_input_id, sendtable_ids, data[1])
+						rpc('receive_data_frame', state_id, last_consumed_input_id, sendtable_ids, data[1], csp_property_ids)
 						for peer_id2 in multiplayer.get_network_connected_peers():
 							if not peer_id2 in _peer_prop_reliable_state_ids:
 								_peer_prop_reliable_state_ids[peer_id2] = {}
 							for prop in reliable_frame:
 								_peer_prop_reliable_state_ids[peer_id2][prop] = state_id
 					else:
-						rpc_id(peer_id, 'receive_data_frame', state_id, last_consumed_input_id, sendtable_ids, data[1])
+						rpc_id(peer_id, 'receive_data_frame', state_id, last_consumed_input_id, sendtable_ids, data[1], csp_property_ids)
 						if not peer_id in _peer_prop_reliable_state_ids:
 							_peer_prop_reliable_state_ids[peer_id] = {}
 						for prop in reliable_frame:
@@ -327,19 +404,22 @@ func send_all_data_frames():
 	_last_frame_had_data = this_frame_had_data
 
 # Prepare data frame based on how long ago last reliable frame was sent to a peer
-func prepare_data_frame(prop_reliable_state_ids:Dictionary):
+func prepare_data_frame(prop_reliable_state_ids:Dictionary, time_depth):
 
 	# Gather protocol preference (reliable/unreliable/auto) from all properties
 	# and values to be send.
 	var frame_reliable = {}
 	var frame_unreliable = {}
 	var unassigned = {}
+	var current_state_id = -1
+	if time_depth:
+		current_state_id -= time_depth[0]
 
 	var sendtable = synced_properties.keys()
 	for prop in sendtable:
 		var property = synced_properties[prop]
 		
-		match property.shouldsend(prop_reliable_state_ids.get(prop, 0)):
+		match property.shouldsend(prop_reliable_state_ids.get(prop, 0), current_state_id):
 			[SyncedProperty.CLIENT_OWNED, ..],\
 			[SyncedProperty.DO_NOT_SYNC, ..]:
 				pass
@@ -366,22 +446,37 @@ func prepare_data_frame(prop_reliable_state_ids:Dictionary):
 	return [sendtable, frame_reliable, frame_unreliable]
 
 # Called via RPC from Server, executes on Clients. Communicates property values.
-puppet func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, values):
+puppet func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, values, csp_properties):
 	if SyncManager.simulate_network_latency != null:
 		var delay = rand_range(SyncManager.simulate_network_latency[0], SyncManager.simulate_network_latency[1])
 		yield(get_tree().create_timer(delay), "timeout")
+		
+	if last_consumed_input_id and last_consumed_input_id > SyncManager.last_consumed_input_id:
+		SyncManager.last_consumed_input_id = last_consumed_input_id
+	if not last_consumed_input_id or last_consumed_input_id > SyncManager.last_consumed_input_id:
+		_update_prop_csp_netframe(csp_properties)
+
 	var frame = parse_data_frame(synced_properties.keys(), sendtable_ids, values)
 	for prop in synced_properties:
 		var property = synced_properties[prop]
-		if is_csp_enabled(property):
-			if prop in frame and last_consumed_input_id:
-				correct_prediction_error(property, last_consumed_input_id, frame[prop])
-		elif prop in frame:
-			if property.debug_log: print('srv_data')
-			property.write(st_id, frame[prop])
-		elif property.last_state_id < st_id:
-			if property.ready_to_read():
-				if property.debug_log: print('srv_no_data')
+		var is_csp = is_client_side_predicted(property)
+		if prop in frame:
+			if is_csp:
+				if last_consumed_input_id:
+					if property.debug_log: print('srv_dt_csp')
+					correct_prediction_error(property, last_consumed_input_id, frame[prop])
+				else:
+					if property.debug_log: print('srv_csp_nocorr')
+			else:
+				if property.debug_log: print('srv_dt')
+				property.write(st_id, frame[prop])
+		elif property.ready_to_read():
+			if is_csp and property.last_compensated_state_id < st_id:
+				assert(last_consumed_input_id)
+				if property.debug_log: print('srv_no_dt_csp')
+				correct_prediction_error(property, last_consumed_input_id, property._get(property.last_compensated_state_id))
+			elif not is_csp and property.last_state_id < st_id:
+				if property.debug_log: print('srv_no_dt')
 				property.write(st_id, property._get(-1))
 		
 	_last_frame_had_data = frame.size() > 0
@@ -442,6 +537,8 @@ static func parse_data_frame(sendtable:Array, sendtable_ids, values)->Dictionary
 # Correct client-side prediction made some time ago for an older state
 # once known valid server state comes delayed by network.
 func correct_prediction_error(property:SyncedProperty, input_id:int, value):
+	assert(SyncManager.is_client() and is_client_side_predicted(property))
+	
 	# state_id during which we locally produced input_id frame
 	var st_id = SyncManager.input_id_to_state_id(input_id)
 	if not st_id:
@@ -449,7 +546,7 @@ func correct_prediction_error(property:SyncedProperty, input_id:int, value):
 
 	# If prediction error has been compensated at some later state_id already,
 	# don't do anything. Or if state_id too long ago in the past.
-	if property.last_compensated_state_id > st_id or not property.contains(st_id):
+	if property.last_compensated_state_id >= st_id or not property.contains(st_id):
 		return
 	property.last_compensated_state_id = st_id
 	
@@ -459,19 +556,33 @@ func correct_prediction_error(property:SyncedProperty, input_id:int, value):
 	
 	# Immediately subtract prediction error from all predictions, 
 	# starting from state_id up to current best predicted property value.
-	if property.debug_log: print('csp_err')
+	if property.debug_log: print('csp_err<-%s'%input_id)
 	for i in range(st_id, property.last_state_id+1):
 		property._set(i, property._get(i) - error)
 
-func rollback():
-	var real_coord = get_position_property()._get(-1)
-	var time_depth = SyncManager.get_time_depth(real_coord)
-	if time_depth <= 0:
-		return
-	var last_valid_state_id = SyncManager.state_id - time_depth
-	for prop in synced_properties:
-		var property = synced_properties[prop]
-		property.rollback(last_valid_state_id)
+	if property.auto_sync_property:
+		_auto_sync_to_parent(property)
+
+func calculate_time_depth():
+	return SyncManager.calculate_time_depth(get_position_property()._get(-1))
+
+func rollback(property_name=null):
+	if SyncManager.is_server():
+		var time_depth = calculate_time_depth()[0]
+		if time_depth <= 0:
+			return
+		var last_valid_state_id = SyncManager.state_id - time_depth
+		for prop in (synced_properties if property_name == null else [property_name]):
+			var property = synced_properties[prop]
+			property.rollback(last_valid_state_id)
+	elif SyncManager.is_client():
+		for prop in (synced_properties if property_name == null else [property_name]):
+			var property = synced_properties[prop]
+			if not is_client_side_predicted(property):
+				var last_valid_state_id = int(SyncManager.get_interpolation_state_id())
+				property.last_compensated_state_id = last_valid_state_id-1
+				property.rollback(last_valid_state_id)
+			_prop_force_csp_until_input_id[prop] = SyncManager.get_local_peer().input_id + 3
 
 # Returns object to serve as a drop-in replacement for builtin Input to proxy
 # player input through. On server, this receives remote input over the net.
@@ -507,9 +618,11 @@ func _get(prop):
 		if p.debug_log: print('autosync_init')
 		_auto_sync_from_parent(p)
 	assert(p.ready_to_read(), "Attempt to read from %s:%s before any writes happened" % [get_path(), prop])
-	if not SyncManager.is_client() or is_csp_enabled(p) or p.sync_strategy == SyncedProperty.CLIENT_OWNED:
+	if not SyncManager.is_client() or p.sync_strategy == SyncedProperty.CLIENT_OWNED:
 		#if p.debug_log: print('read(-1)%s' % [str(p.read(get_interpolation_state_id())) if p.changed(get_interpolation_state_id()-1) else '--'])
 		return p.read(-1)
+	if SyncManager.is_client() and is_client_side_predicted(p):
+		return p.read(int(SyncManager.get_interpolation_state_id()))
 	#if p.debug_log: print('read(%s)%s' % [
 	#	get_interpolation_state_id(), 
 	#	str(p.read(get_interpolation_state_id())) if p.changed(get_interpolation_state_id()-1) else '--'
@@ -526,30 +639,28 @@ func _set(prop, value):
 	# Writes to non-client-owned and non-client-side-predicted
 	# properties is silently ignored on Client.
 	# But we always allow the first initializing write, even on a client.
-	if p.ready_to_read():
-		if SyncManager.is_client():
-			if not is_csp_enabled(p) and p.sync_strategy != SyncedProperty.CLIENT_OWNED:
-				return true
-	
-	if p.debug_log: print('lcl_data')
+	if p.ready_to_read() and SyncManager.is_client():
+		if not is_client_side_predicted(p) and p.sync_strategy != SyncedProperty.CLIENT_OWNED:
+			return true
 
-	var target_state_id = SyncManager.state_id
+	if p.debug_log: print('lcl_data->%s' % SyncManager.get_local_peer().input_id)
+
+	var target_state_id = int(SyncManager.get_interpolation_state_id()) if SyncManager.is_client() else SyncManager.state_id
 	var is_rollback_recover_mode = false
 	
-	if p.ready_to_read():
+	if p.ready_to_read() and SyncManager.is_server() and is_client_side_predicted(p):
 		# When the property has been recently rolled back, we do a special write mode.
 		# Writing two indices at once allows to gradually regain frames lost at rollback.
-		if p.is_client_side_predicted():
-			assert(p.last_rollback_to_state_id < p.last_rollback_from_state_id)
-			assert(p.last_state_id >= p.last_rollback_to_state_id)
-			assert(p.last_rollback_from_state_id*2 - p.last_rollback_to_state_id > 0)
-			assert(p.last_rollback_from_state_id*2 - p.last_rollback_to_state_id <= p.last_rollback_from_state_id*2 - p.last_rollback_to_state_id)
-			is_rollback_recover_mode = true
-			target_state_id = int(lerp(
-				p.last_rollback_to_state_id, 
-				p.last_rollback_from_state_id*2 - p.last_rollback_to_state_id, 
-				float(target_state_id - p.last_rollback_from_state_id) / (p.last_rollback_from_state_id*2.0 - p.last_rollback_to_state_id)
-			))
+		assert(p.last_rollback_to_state_id < p.last_rollback_from_state_id)
+		assert(p.last_state_id >= p.last_rollback_to_state_id)
+		assert(p.last_rollback_from_state_id*2 - p.last_rollback_to_state_id > 0)
+		assert(p.last_rollback_from_state_id*2 - p.last_rollback_to_state_id <= p.last_rollback_from_state_id*2 - p.last_rollback_to_state_id)
+		is_rollback_recover_mode = true
+		target_state_id = int(lerp(
+			p.last_rollback_to_state_id, 
+			p.last_rollback_from_state_id*2 - p.last_rollback_to_state_id, 
+			float(target_state_id - p.last_rollback_from_state_id) / (p.last_rollback_from_state_id*2.0 - p.last_rollback_to_state_id)
+		))
 		
 		# When server does not write to an interpolated property for some time,
 		# the first write should interlpolate over 1 state, not many.
@@ -562,5 +673,6 @@ func _set(prop, value):
 			if p.missing_state_interpolation == SyncedProperty.NO_INTERPOLATION:
 				p.write(target_state_id-1, value)
 
+	assert(not SyncManager.is_client() or not p.ready_to_read() or is_client_side_predicted(p))
 	p.write(target_state_id, value)
 	return true

@@ -32,6 +32,7 @@ func _ready():
 		assert('rotation' in self and 'position' in self, "Aligned node must be set as script for a Node2D.")
 	synced = _get_synced_sibling()
 	assert(synced is Synced)
+	synced.is_csp_enabled = true
 
 func _physics_process(_d):
 	# Only applies while on the server
