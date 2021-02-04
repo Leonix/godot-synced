@@ -265,3 +265,35 @@ func test_re_interpolate2():
 	var old_state = prop.container.duplicate()
 	prop.write(135, 1135.0)
 	assert_eq(old_state, prop.container)
+
+func test_rollback1():
+	var prop = autofree(SyncedProperty.new({
+		interpolation = SyncedProperty.LINEAR_INTERPOLATION,
+		missing_state_interpolation = SyncedProperty.LINEAR_INTERPOLATION
+	}))
+	assert_false(bool(prop.last_rollback_from_state_id))
+	assert_false(bool(prop.last_rollback_to_state_id))
+	prop.resize(7)
+	prop.write(22, 122.0)
+	prop.write(27, 127.0)
+	prop.rollback(25)
+	assert_eq(25, prop.last_state_id)
+	assert_eq(25, prop.last_rollback_to_state_id)
+	assert_eq(27, prop.last_rollback_from_state_id)
+	assert_eq(125.0, prop._get(-1))
+	assert_eq(122.0, prop.read(3))
+	# 22  23  24  25  26  27  28  29
+	# 122 123 124 125 124 123 122 121
+	prop.write(26, 124.0)
+	assert_eq(26, prop.last_state_id)
+	assert_eq(124.0, prop._get(-1))
+	assert_eq(124.0, prop.read(26))
+	assert_eq(125.0, prop.read(25))
+	prop.write(29, 121.0)
+	assert_eq(29, prop.last_state_id)
+	assert_eq(121.0, prop._get(-1))
+	assert_eq(121.0, prop.read(29))
+	assert_eq(122.0, prop.read(28))
+	assert_eq(123.0, prop.read(27))
+	assert_eq(124.0, prop.read(26))
+	assert_eq(125.0, prop.read(25))

@@ -88,10 +88,14 @@ var is_interpolated: Array
 var last_index: int = -1
 # state_id written at container[last_index]
 var last_state_id: int = 0
-# state_id when value changed latst time
+# state_id when value changed last time
 var last_changed_state_id: int = 0
 # Last time Synced applied CSP compensation based on data that came from server
 var last_compensated_state_id: int = 0
+# Info about last rollback performed on this property
+var last_rollback_from_state_id = 0
+var last_rollback_to_state_id = 0
+
 # Prints all successfull writes to this to console
 export var debug_log = false
 # When set, Synced will write to this SyncedProperty after each _physics_process()
@@ -368,6 +372,26 @@ func relative_state_id(state_id:int)->int:
 		var result = last_state_id + 1 + state_id
 		return result if result > 0 else 1
 	return state_id
+
+func rollback(to_state_id):
+	if to_state_id >= last_state_id:
+		return
+	var oldest_value = container[_get_index(
+		int(max(1, last_state_id - container.size()))
+	)]
+	
+	last_rollback_from_state_id = last_state_id
+	last_rollback_to_state_id = to_state_id
+
+	for state_id in range(to_state_id+1, last_state_id+1):
+		container[_get_index(state_id)] = oldest_value
+	last_index = _get_index(to_state_id)
+	last_state_id = to_state_id
+	
+	if last_changed_state_id > to_state_id:
+		last_changed_state_id = to_state_id
+	if last_compensated_state_id > to_state_id:
+		last_compensated_state_id = to_state_id
 
 func ready_to_read():
 	return last_index >= 0

@@ -1,11 +1,11 @@
 extends "res://addons/gut/test.gd"
 
 func test_basic_sb():
-	var synced = add_child_autofree(Synced.new())
+	var synced = Synced.new()
 	var prop = autofree(SyncedProperty.new())
 	prop.name = 'zzzz'
 	synced.add_child(prop)
-	synced._ready()
+	add_child_autofree(synced)
 	synced.zzzz = 1234
 	assert_eq(1234, synced.zzzz)
 
