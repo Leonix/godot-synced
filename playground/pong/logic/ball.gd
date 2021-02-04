@@ -66,6 +66,6 @@ func _reset_ball(for_left):
 
 # !!! When interactions change behaviour predicted before, have to tell the engine somehow
 func reset_history():
-	synced.reset_history()
+	synced.rollback()
 	synced.position = area.global_position
 	position = area.global_position

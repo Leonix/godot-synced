@@ -146,11 +146,8 @@ func setup_auto_update_parent():
 		set_process_internal(_should_auto_update_parent)
 
 # Whether client-side prediction is enabled for given property.
-# !!! rewrite
 func is_csp_enabled(property:SyncedProperty)->bool:
-	if property.is_client_side_predicted():
-		return true
-	return false
+	return property.is_client_side_predicted()
 
 func prepare_synced_properties():
 	setup_position_sync()
@@ -466,17 +463,15 @@ func correct_prediction_error(property:SyncedProperty, input_id:int, value):
 	for i in range(st_id, property.last_state_id+1):
 		property._set(i, property._get(i) - error)
 
-func reset_history():
-	#return # !!!
-	var real_coord = SyncManager.get_coord(get_parent())
+func rollback():
+	var real_coord = get_position_property()._get(-1)
 	var time_depth = SyncManager.get_time_depth(real_coord)
 	if time_depth <= 0:
 		return
 	var last_valid_state_id = SyncManager.state_id - time_depth
 	for prop in synced_properties:
 		var property = synced_properties[prop]
-		property.last_index = property._get_index(last_valid_state_id)
-		property.last_state_id = last_valid_state_id # !!! quick and dirty, can't do that
+		property.rollback(last_valid_state_id)
 
 # Returns object to serve as a drop-in replacement for builtin Input to proxy
 # player input through. On server, this receives remote input over the net.
@@ -506,37 +501,66 @@ func set_belongs_to_peer_id(peer_id):
 	
 func _get(prop):
 	var p = synced_properties.get(prop)
-	if p:
-		if not p.ready_to_read() and p.auto_sync_property != '':
-			if p.debug_log: print('autosync_init')
-			_auto_sync_from_parent(p)
-		assert(p.ready_to_read(), "Attempt to read from %s:%s before any writes happened" % [get_path(), prop])
-		if not SyncManager.is_client() or is_csp_enabled(p) or p.sync_strategy == SyncedProperty.CLIENT_OWNED:
-			#if p.debug_log: print('read(-1)%s' % [str(p.read(get_interpolation_state_id())) if p.changed(get_interpolation_state_id()-1) else '--'])
-			return p.read(-1)
-		#if p.debug_log: print('read(%s)%s' % [
-		#	get_interpolation_state_id(), 
-		#	str(p.read(get_interpolation_state_id())) if p.changed(get_interpolation_state_id()-1) else '--'
-		#])
-		return p.read(SyncManager.get_interpolation_state_id())
+	if not p:
+		return
+	if not p.ready_to_read() and p.auto_sync_property != '':
+		if p.debug_log: print('autosync_init')
+		_auto_sync_from_parent(p)
+	assert(p.ready_to_read(), "Attempt to read from %s:%s before any writes happened" % [get_path(), prop])
+	if not SyncManager.is_client() or is_csp_enabled(p) or p.sync_strategy == SyncedProperty.CLIENT_OWNED:
+		#if p.debug_log: print('read(-1)%s' % [str(p.read(get_interpolation_state_id())) if p.changed(get_interpolation_state_id()-1) else '--'])
+		return p.read(-1)
+	#if p.debug_log: print('read(%s)%s' % [
+	#	get_interpolation_state_id(), 
+	#	str(p.read(get_interpolation_state_id())) if p.changed(get_interpolation_state_id()-1) else '--'
+	#])
+	return p.read(SyncManager.get_interpolation_state_id())
 
 func _set(prop, value):
 	var p = synced_properties.get(prop)
-	if p:
-		assert(p.ready_to_write(), "Improperly initialized SyncedProperty %s:%s" % [get_path(), prop])
+	if not p:
+		return
+	assert(p.ready_to_write(), "Improperly initialized SyncedProperty %s:%s" % [get_path(), prop])
+	
+	# Normal interpolated properties are only writable on Server.
+	# Writes to non-client-owned and non-client-side-predicted
+	# properties is silently ignored on Client.
+	# But we always allow the first initializing write, even on a client.
+	if p.ready_to_read():
+		if SyncManager.is_client():
+			if not is_csp_enabled(p) and p.sync_strategy != SyncedProperty.CLIENT_OWNED:
+				return true
+	
+	if p.debug_log: print('lcl_data')
+
+	var target_state_id = SyncManager.state_id
+	var is_rollback_recover_mode = false
+	
+	if p.ready_to_read():
+		# When the property has been recently rolled back, we do a special write mode.
+		# Writing two indices at once allows to gradually regain frames lost at rollback.
+		if p.is_client_side_predicted():
+			assert(p.last_rollback_to_state_id < p.last_rollback_from_state_id)
+			assert(p.last_state_id >= p.last_rollback_to_state_id)
+			assert(p.last_rollback_from_state_id*2 - p.last_rollback_to_state_id > 0)
+			assert(p.last_rollback_from_state_id*2 - p.last_rollback_to_state_id <= p.last_rollback_from_state_id*2 - p.last_rollback_to_state_id)
+			is_rollback_recover_mode = true
+			target_state_id = int(lerp(
+				p.last_rollback_to_state_id, 
+				p.last_rollback_from_state_id*2 - p.last_rollback_to_state_id, 
+				float(target_state_id - p.last_rollback_from_state_id) / (p.last_rollback_from_state_id*2.0 - p.last_rollback_to_state_id)
+			))
 		
-		# Normal interpolated properties are only writable on Server.
-		# Writes to non-client-owned and non-client-side-predicted
-		# properties is silently ignored on Client.
-		# But we always allow the first initializing write, even on a client.
-		if p.ready_to_read():
-			if SyncManager.is_client():
-				if not is_csp_enabled(p) and p.sync_strategy != SyncedProperty.CLIENT_OWNED:
-					return true
-			# When server does not write to an interpolated property for some time,
-			# the first write should interlpolate over 1 state, not many.
-			if p.last_state_id < SyncManager.state_id-1:
-				p.write(SyncManager.state_id-1, p.read(-1))
-		if p.debug_log: print('lcl_data')
-		p.write(SyncManager.state_id, value)
-		return true
+		# When server does not write to an interpolated property for some time,
+		# the first write should interlpolate over 1 state, not many.
+		if p.last_state_id < target_state_id-1:
+			p.write(target_state_id-1, p.read(-1))
+
+		if is_rollback_recover_mode:
+			# NO_INTERPOLATION mode would otherwise set target_state_id-1 to previous value.
+			# Value should change at target_state_id-1 rather than target_state_id.
+			if p.missing_state_interpolation == SyncedProperty.NO_INTERPOLATION:
+				p.write(target_state_id-1, value)
+
+	p.write(target_state_id, value)
+	return true

@@ -411,4 +411,8 @@ static func is_valid_option(name):
 # Client-side-predicted properties has part of their recent history erased
 # and gradually regain frames, catching up with the rest of the simulated world.
 func is_client_side_predicted():
-	return false # !!!! not implemented yet
+	if SyncManager.is_server():
+		return last_rollback_to_state_id <= SyncManager.state_id and SyncManager.state_id < last_rollback_from_state_id*2 - last_rollback_to_state_id - 1
+	else:
+		# !!! TODO: not properly implemented for client yet
+		return false
