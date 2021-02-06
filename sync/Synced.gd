@@ -104,11 +104,11 @@ func _physics_process(_delta):
 			# We're allowed to extrapolate this last known state into the future
 			# as if we receive it from server each frame.
 			for prop in synced_properties:
-				var property = synced_properties[prop]
+				var property:SyncedProperty = synced_properties[prop]
 				if is_client_side_predicted(property):
 					pass # can't correct prediction errors though
 				elif int(SyncManager.get_interpolation_state_id()) > property.last_state_id:
-					if property.ready_to_read():
+					if property.ready_to_read() and (property.sync_strategy == SyncedProperty.AUTO_SYNC or property.sync_strategy == SyncedProperty.RELIABLE_SYNC):
 						if property.debug_log: print('ext_emp_f')
 						property.write(int(SyncManager.get_interpolation_state_id()), property._get(-1))
 
@@ -158,19 +158,24 @@ func setup_auto_update_parent():
 
 # Data structures kept on client to track current CSP status of properties
 var _prop_force_csp_until_input_id = {}
-var _prop_disable_csp_at_state_id = {}
 var _prop_is_server_csp = {}
 
-# Called every frame
+# Called every frame, as well as on netframe
 func _update_prop_csp_tick():
 	assert(SyncManager.is_client())
 	for prop in _prop_force_csp_until_input_id:
 		var input_id = _prop_force_csp_until_input_id[prop]
 		if input_id <= SyncManager.last_consumed_input_id:
-			var st_id = SyncManager._last_received_state_id
 			_prop_force_csp_until_input_id.erase(prop)
-			var property:SyncedProperty = synced_properties.get(prop)
-			_prop_disable_csp_at_state_id[prop] = st_id + 2*(property.last_rollback_from_state_id - property.last_rollback_to_state_id)
+
+	# Everything that has just disabled its client-side-prediction
+	# has to be reverted back to last known valid server state
+	for prop in synced_properties:
+		var property:SyncedProperty = synced_properties[prop]
+		if property.last_rollback_from_state_id > 0 and not is_client_side_predicted(property):
+			property.rollback(property.last_compensated_state_id)
+			property.last_rollback_from_state_id = 0
+			property.last_rollback_to_state_id = 0
 
 # Called when data from server comes.
 func _update_prop_csp_netframe(enabled_sendtable_ids):
@@ -200,18 +205,37 @@ func is_client_side_predicted(property)->bool:
 		var input_id = _prop_force_csp_until_input_id[prop]
 		if input_id > SyncManager.last_consumed_input_id:
 			return true
-			
+
+	var interp_state_id = SyncManager.get_interpolation_state_id()
+
 	# If server did not confirm CSP status, CSP is disabled after initial period forced above
 	if not _prop_is_server_csp.get(prop):
-		return false
+		if property.last_rollback_from_state_id*2 - property.last_rollback_to_state_id > interp_state_id:
+			return false
 		
-	# CSP is disabled on client after several state frames even while server still 
-	# confirms CSP status (server probably enabled it because of another peer's interaction)
-	var state_id = _prop_disable_csp_at_state_id.get(prop)
-	if state_id != null and state_id >= SyncManager.state_id:
-		return true
-		
-	return false
+	# CSP is disabled on client after a period to smoothly drop required number of states
+	return interp_state_id < property.last_rollback_from_state_id + get_csp_smooth_period(property)
+
+# Client-side-predicted positions under Aligned show with a lag on client
+func get_csp_smooth_period(property:SyncedProperty)->int:
+	var rollback_period = property.last_rollback_from_state_id - property.last_rollback_to_state_id
+	assert(rollback_period >= 0)
+	return int(rollback_period * SyncManager.client_csp_period_multiplier)
+
+func get_csp_lag(property:SyncedProperty)->float:
+	var max_lag = (property.last_rollback_from_state_id - property.last_rollback_to_state_id)
+	if max_lag <= 0:
+		return 0.0
+	var target_state_id = SyncManager.get_interpolation_state_id()
+	var smooth_period = get_csp_smooth_period(property)
+	return lerp(
+		0, 
+		max_lag, 
+		clamp(
+			(target_state_id - property.last_rollback_to_state_id) / smooth_period,
+			0, 1
+		)
+	)
 
 func prepare_synced_properties():
 	setup_position_sync()
@@ -456,13 +480,15 @@ puppet func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, val
 		
 	if not last_consumed_input_id or last_consumed_input_id >= SyncManager.last_consumed_input_id:
 		_update_prop_csp_netframe(csp_properties)
+	_update_prop_csp_tick()
 	if last_consumed_input_id and last_consumed_input_id > SyncManager.last_consumed_input_id:
 		SyncManager.last_consumed_input_id = last_consumed_input_id
 
 	var frame = parse_data_frame(synced_properties.keys(), sendtable_ids, values)
 	for prop in synced_properties:
-		var property = synced_properties[prop]
+		var property:SyncedProperty = synced_properties[prop]
 		var is_csp = is_client_side_predicted(property)
+
 		if prop in frame:
 			if is_csp:
 				if last_consumed_input_id:
@@ -473,6 +499,7 @@ puppet func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, val
 			else:
 				if property.debug_log: print('srv_dt')
 				property.write(st_id, frame[prop])
+				property.last_compensated_state_id = st_id
 		elif property.ready_to_read():
 			if is_csp and property.last_compensated_state_id < st_id:
 				if last_consumed_input_id:
@@ -483,6 +510,7 @@ puppet func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, val
 			elif not is_csp and property.last_state_id < st_id:
 				if property.debug_log: print('srv_no_dt')
 				property.write(st_id, property._get(-1))
+				property.last_compensated_state_id = st_id
 		
 	_last_frame_had_data = frame.size() > 0
 	SyncManager.update_received_state_id_and_mtime(st_id)

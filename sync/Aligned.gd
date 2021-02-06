@@ -34,33 +34,65 @@ func _ready():
 	assert(synced is Synced)
 	synced.is_csp_enabled = true
 
-func _physics_process(_d):
-	# Only applies while on the server
-	if not SyncManager.is_server():
+func _process(_d):
+	if not SyncManager.is_server() and not SyncManager.is_client():
 		return
 
 	var rotation_property = synced.get_rotation_property()
 	var position_property = synced.get_position_property()
 
-
 	_set_parent = true
 	var old_state_id = get_time_depth_state_id()
 	for p in [position_property, rotation_property]:
-		var real_value = p._get(-1)
-		var old_value = p._get(old_state_id)
+		var real_value
+		var old_value
+		if SyncManager.is_server():
+			# On server, we show visuals as if back in time according to Time Depth.
+			real_value = p._get(-1)
+			old_value = p._get(old_state_id)
+		elif p.last_rollback_from_state_id > 0:
+		#elif synced.is_client_side_predicted(p):
+			# On client, we show predicted coordinates slightly back in time
+			var target_state_id = SyncManager.get_interpolation_state_id()
+			real_value = p._get(int(target_state_id))
+			old_state_id = target_state_id - synced.get_csp_lag(p)
+			old_value = p._get(old_state_id)
+			if false and get_parent().name == 'Ball': 
+				print("%s@%s(%s|%s)=%s(%s)" % [
+					p.name, 
+					int(target_state_id) % 1000, 
+					int(old_state_id) % 1000,
+					p.last_rollback_from_state_id - p.last_rollback_to_state_id,
+					int(real_value.x),
+					int(old_value.x)
+				])
+				if false: print([int(p.last_state_id) % 1000, 
+					int(p._get(-1).x),
+					int(p._get(-2).x),
+					int(p._get(-3).x),
+					int(p._get(-4).x),
+					int(p._get(-5).x),
+					int(p._get(-6).x),
+					int(p._get(-7).x),
+					int(p._get(-8).x),
+					int(p._get(-9).x),
+					int(p._get(-10).x),
+				])
+				
+		else:
+			if not p.ready_to_read():
+				continue
+			real_value = p._get(-1)
+			old_value = p._get(-1)
+
 		set(p.auto_sync_property, old_value - real_value)
-		#print('%s=%s' % [p.auto_sync_property, old_value - real_value])
-		if false and p == position_property and p.debug_log:
-			if synced.is_client_side_predicted('position'):
-				print('!!!%s(%s)%s:%s,%s' % [SyncManager.state_id, old_state_id, p.last_state_id, int(real_value.x), int(old_value.x)])
-			else:
-				if p.ready_to_read():
-					print('%s(%s)%s:%s,%s' % [SyncManager.state_id, old_state_id, p.last_state_id, int(real_value.x), int(old_value.x)])
 	_set_parent = false
 
 var _set_parent = false
 
 func get_time_depth_state_id():
+	if not SyncManager.is_server():
+		return 0 # not applicable, not used on clients
 	var real_coord = synced.get('position')
 	if real_coord == null:
 		return SyncManager.state_id
@@ -80,10 +112,6 @@ func _get(prop):
 		return null
 	if SyncManager.is_client() or p.sync_strategy == SyncedProperty.CLIENT_OWNED:
 		return synced._get(prop)
-	#if p.debug_log: print('aligned(%s)%s' % [
-	#	get_time_depth_state_id(), 
-	#	str(p.read(get_time_depth_state_id())) if p.changed(get_time_depth_state_id()-1) else '--'
-	#])
 	return p.read(get_time_depth_state_id())
 
 func _set(prop, value):
