@@ -39,7 +39,7 @@ func bounce(left):
 		abs(aligned.direction.x)*(1 if left else -1),
 		fmod(aligned.direction.y * 140.314 + 0.47, 1.0) - 0.5
 	).normalized()
-	synced.speed *= 1.1
+	aligned.speed *= 1.1
 
 # called by pong.gd when the game ends
 func stop():

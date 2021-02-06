@@ -44,8 +44,8 @@ extends Node
 var client_interpolation_lag = 6
 
 # How long (in state_ids) should history be for each interpolated property on a client.
-# This must exceed client_interpolation_lag.
-var client_interpolation_history_size = 8
+# This must exceed client_interpolation_lag plus max latency
+var client_interpolation_history_size = 40
 
 # How many times per second to send property values from Server to Client.
 var server_sendrate = 20
