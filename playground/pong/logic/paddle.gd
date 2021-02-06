@@ -8,8 +8,8 @@ var _motion = 0.0
 var _you_hidden = false
 
 onready var _screen_size_y = get_viewport_rect().size.y
-onready var synced = $synced
-onready var aligned = $aligned
+onready var synced:Synced = $synced
+onready var aligned:Aligned = $aligned
 
 func _process(_delta):
 	# Hide label instantly for another person's paddle, or after a move for your paddle.
@@ -31,4 +31,5 @@ func _hide_you_label():
 	get_node("You").hide()
 
 func _on_paddle_area_enter(area):
-	area.find_parent('Ball').bounce(left)
+	if not SyncManager.is_client() or synced.is_local_peer():
+		area.find_parent('Ball').bounce(left)
