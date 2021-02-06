@@ -219,8 +219,6 @@ func calculate_time_depth(target_coord):
 				synced.belongs_to_peer_id,
 			]
 	var result = _td_calc(candidates.values())
-	if result[1] != 0:
-		result[0] += SyncManager.client_interpolation_lag
 	return result
 
 func _td_calc(players: Array):

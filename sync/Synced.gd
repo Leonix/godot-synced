@@ -462,17 +462,17 @@ puppet func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, val
 		if prop in frame:
 			if is_csp:
 				if last_consumed_input_id:
-					if property.debug_log: print('srv_dt_csp')
+					if property.debug_log: print('srv_dt_csp(%s)' % st_id)
 					correct_prediction_error(property, last_consumed_input_id, frame[prop])
 				else:
-					if property.debug_log: print('srv_csp_nocorr')
+					if property.debug_log: print('srv_csp_nocorr(%s)' % st_id)
 			else:
 				if property.debug_log: print('srv_dt')
 				property.write(st_id, frame[prop])
 		elif property.ready_to_read():
 			if is_csp and property.last_compensated_state_id < st_id:
 				if last_consumed_input_id:
-					if property.debug_log: print('srv_no_dt_csp')
+					if property.debug_log: print('srv_no_dt_csp(%s)' % st_id)
 					correct_prediction_error(property, last_consumed_input_id, property._get(property.last_compensated_state_id))
 				else:
 					if property.debug_log: print('srv_no_dt_csp_nocorr')
@@ -549,6 +549,7 @@ func correct_prediction_error(property:SyncedProperty, input_id:int, value):
 	# don't do anything. Or if state_id too long ago in the past.
 	if property.last_compensated_state_id >= st_id or not property.contains(st_id):
 		return
+	if property.debug_log: print('csp_err<-%s(%s>%s)'%[input_id, st_id, property.last_compensated_state_id])
 	property.last_compensated_state_id = st_id
 	
 	# Compare newly confirmed `value` with previous prediction. 
@@ -557,7 +558,6 @@ func correct_prediction_error(property:SyncedProperty, input_id:int, value):
 	
 	# Immediately subtract prediction error from all predictions, 
 	# starting from state_id up to current best predicted property value.
-	if property.debug_log: print('csp_err<-%s'%input_id)
 	for i in range(st_id, property.last_state_id+1):
 		property._set(i, property._get(i) - error)
 
@@ -586,9 +586,9 @@ func rollback(property_name=null):
 		if property.sync_strategy == SyncedProperty.CLIENT_OWNED:
 			continue
 		if SyncManager.is_client():
-			_prop_force_csp_until_input_id[prop] = SyncManager.get_local_peer().input_id + 3
 			if not is_client_side_predicted(property):
-				property.last_compensated_state_id = last_valid_state_id-1
+				property.last_compensated_state_id = last_valid_state_id
+			_prop_force_csp_until_input_id[prop] = SyncManager.get_local_peer().input_id + 3
 		property.rollback(last_valid_state_id)
 
 # Returns object to serve as a drop-in replacement for builtin Input to proxy
