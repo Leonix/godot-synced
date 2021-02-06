@@ -161,6 +161,8 @@ func read(state_id: float):
 # Write is ignored if state_id is too old.
 func write(state_id: int, value):
 	assert(ready_to_write(), "Attempt to write to SyncedProperty before container size is set.")
+	# SyncedProperties do not support null values because trying to
+	# return them from _get() makes parent class to look it up instead
 	assert(value != null, "Writing nulls to synced properties is not allowed")
 	if debug_log:
 		var str_value = '-'
@@ -376,7 +378,8 @@ func rollback(to_state_id):
 		int(max(1, last_state_id - container.size()))
 	)]
 	
-	last_rollback_from_state_id = last_state_id
+	if last_state_id > last_rollback_from_state_id:
+		last_rollback_from_state_id = last_state_id
 	last_rollback_to_state_id = to_state_id
 	if debug_log: print('rollback(%s(%s)->%s(%s))' % [
 		_get(-1), 

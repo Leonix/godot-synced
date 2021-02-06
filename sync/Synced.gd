@@ -130,9 +130,6 @@ func _auto_sync_all_to_parent():
 func _auto_sync_from_parent(property: SyncedProperty):
 	assert(property.auto_sync_property)
 	var value = get_parent().get(property.auto_sync_property)
-	# SyncedProperties do not support null values because trying to
-	# return them from _get() makes parent class to look it up instead
-	assert(value != null, "SyncedProperties do not support null values")
 	if property.debug_log: print('autosync_from_parent')
 	self._set(property.name, value)
 	
@@ -181,9 +178,11 @@ func _update_prop_csp_netframe(enabled_sendtable_ids):
 # On server this means that recent history for the property has been rolled back.
 # On client this means that all writes to property are allowed and show right away,
 # and correction is applied later, eventually when data comes from the server.
-func is_client_side_predicted(property:SyncedProperty)->bool:
+func is_client_side_predicted(property)->bool:
+	if not property is SyncedProperty:
+		property = synced_property(property)
 	if SyncManager.is_server():
-		return property.last_rollback_to_state_id <= SyncManager.state_id and SyncManager.state_id < property.last_rollback_from_state_id*2 - property.last_rollback_to_state_id - 1
+		return SyncManager.state_id < property.last_rollback_from_state_id*2 - property.last_rollback_to_state_id
 	if not SyncManager.is_client():
 		return false;
 		
@@ -569,24 +568,28 @@ func calculate_time_depth():
 	return SyncManager.calculate_time_depth(get_position_property()._get(-1))
 
 func rollback(property_name=null):
+	var last_valid_state_id
 	if SyncManager.is_server():
 		var time_depth = calculate_time_depth()[0]
 		if time_depth <= 0:
 			return
-		var last_valid_state_id = SyncManager.state_id - time_depth
+		last_valid_state_id = SyncManager.state_id - time_depth
 		if last_valid_state_id < 1:
 			last_valid_state_id = 1
-		for prop in (synced_properties if property_name == null else [property_name]):
-			var property = synced_properties[prop]
-			property.rollback(last_valid_state_id)
 	elif SyncManager.is_client():
-		for prop in (synced_properties if property_name == null else [property_name]):
-			var property = synced_properties[prop]
-			if not is_client_side_predicted(property):
-				var last_valid_state_id = int(SyncManager.get_interpolation_state_id())
-				property.last_compensated_state_id = last_valid_state_id-1
-				property.rollback(last_valid_state_id)
+		last_valid_state_id = int(SyncManager.get_interpolation_state_id())
+	else:
+		return
+
+	for prop in (synced_properties if property_name == null else [property_name]):
+		var property = synced_properties[prop]
+		if property.sync_strategy == SyncedProperty.CLIENT_OWNED:
+			continue
+		if SyncManager.is_client():
 			_prop_force_csp_until_input_id[prop] = SyncManager.get_local_peer().input_id + 3
+			if not is_client_side_predicted(property):
+				property.last_compensated_state_id = last_valid_state_id-1
+		property.rollback(last_valid_state_id)
 
 # Returns object to serve as a drop-in replacement for builtin Input to proxy
 # player input through. On server, this receives remote input over the net.
@@ -650,32 +653,38 @@ func _set(prop, value):
 	if p.debug_log: print('lcl_data(->inp%s)' % SyncManager.get_local_peer().input_id)
 
 	var target_state_id = int(SyncManager.get_interpolation_state_id()) if SyncManager.is_client() else SyncManager.state_id
-	var is_rollback_recover_mode = false
 	
-	if p.ready_to_read() and SyncManager.is_server() and is_client_side_predicted(p):
+	if p.ready_to_read() and SyncManager.is_server() and is_client_side_predicted(p) and target_state_id >= p.last_rollback_from_state_id:
 		# When the property has been recently rolled back, we do a special write mode.
 		# Writing two indices at once allows to gradually regain frames lost at rollback.
 		assert(p.last_rollback_to_state_id < p.last_rollback_from_state_id)
 		assert(p.last_state_id >= p.last_rollback_to_state_id)
 		assert(p.last_rollback_from_state_id*2 - p.last_rollback_to_state_id > 0)
 		assert(p.last_rollback_from_state_id*2 - p.last_rollback_to_state_id <= p.last_rollback_from_state_id*2 - p.last_rollback_to_state_id)
-		is_rollback_recover_mode = true
 		target_state_id = int(lerp(
 			p.last_rollback_to_state_id, 
 			p.last_rollback_from_state_id*2 - p.last_rollback_to_state_id, 
-			float(target_state_id - p.last_rollback_from_state_id) / (p.last_rollback_from_state_id*2.0 - p.last_rollback_to_state_id)
+			float(target_state_id - p.last_rollback_from_state_id) /(p.last_rollback_from_state_id - p.last_rollback_to_state_id)
 		))
+		if false and p.debug_log: print('!!! %s<=%s(%s)<=%s (%s = %s / %s)' % [
+			p.last_rollback_to_state_id, 
+			target_state_id, 
+			SyncManager.state_id, 
+			p.last_rollback_from_state_id*2 - p.last_rollback_to_state_id, 
+			float(SyncManager.state_id - p.last_rollback_from_state_id) /(p.last_rollback_from_state_id - p.last_rollback_to_state_id),
+			float(SyncManager.state_id - p.last_rollback_from_state_id),
+			(p.last_rollback_from_state_id - p.last_rollback_to_state_id)
+		])
 		
 		# When server does not write to an interpolated property for some time,
 		# the first write should interlpolate over 1 state, not many.
 		if p.last_state_id < target_state_id-1:
 			p.write(target_state_id-1, p.read(-1))
 
-		if is_rollback_recover_mode:
-			# NO_INTERPOLATION mode would otherwise set target_state_id-1 to previous value.
-			# Value should change at target_state_id-1 rather than target_state_id.
-			if p.missing_state_interpolation == SyncedProperty.NO_INTERPOLATION:
-				p.write(target_state_id-1, value)
+		# NO_INTERPOLATION mode would otherwise set target_state_id-1 to previous value.
+		# Value should change at target_state_id-1 rather than target_state_id.
+		if p.missing_state_interpolation == SyncedProperty.NO_INTERPOLATION:
+			p.write(target_state_id-1, value)
 
 	assert(not SyncManager.is_client() or not p.ready_to_read() or is_client_side_predicted(p))
 	p.write(target_state_id, value)

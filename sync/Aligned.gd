@@ -42,13 +42,20 @@ func _physics_process(_d):
 	var rotation_property = synced.get_rotation_property()
 	var position_property = synced.get_position_property()
 
+
 	_set_parent = true
 	var old_state_id = get_time_depth_state_id()
 	for p in [position_property, rotation_property]:
-		var real_value = p._get(SyncManager.state_id)
+		var real_value = p._get(-1)
 		var old_value = p._get(old_state_id)
 		set(p.auto_sync_property, old_value - real_value)
 		#print('%s=%s' % [p.auto_sync_property, old_value - real_value])
+		if false and p == position_property and p.debug_log:
+			if synced.is_client_side_predicted('position'):
+				print('!!!%s(%s)%s:%s,%s' % [SyncManager.state_id, old_state_id, p.last_state_id, int(real_value.x), int(old_value.x)])
+			else:
+				if p.ready_to_read():
+					print('%s(%s)%s:%s,%s' % [SyncManager.state_id, old_state_id, p.last_state_id, int(real_value.x), int(old_value.x)])
 	_set_parent = false
 
 var _set_parent = false
@@ -63,6 +70,9 @@ func _get_synced_sibling():
 	for sibling in get_parent().get_children():
 		if sibling is Synced:
 			return sibling
+
+func touch(prop):
+	synced.rollback(prop)
 
 func _get(prop):
 	var p = synced.synced_properties.get(prop) if synced and synced.synced_properties else null
