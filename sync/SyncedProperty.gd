@@ -161,6 +161,7 @@ func read(state_id: float):
 # Write is ignored if state_id is too old.
 func write(state_id: int, value):
 	assert(ready_to_write(), "Attempt to write to SyncedProperty before container size is set.")
+	assert(value != null, "Writing nulls to synced properties is not allowed")
 	if debug_log:
 		var str_value = '-'
 		if not ready_to_read() or value != container[_get_index(state_id)]:
@@ -370,12 +371,19 @@ func relative_state_id(state_id:int)->int:
 func rollback(to_state_id):
 	if to_state_id >= last_state_id:
 		return
+	assert(to_state_id > 0)
 	var oldest_value = container[_get_index(
 		int(max(1, last_state_id - container.size()))
 	)]
 	
 	last_rollback_from_state_id = last_state_id
 	last_rollback_to_state_id = to_state_id
+	if debug_log: print('rollback(%s(%s)->%s(%s))' % [
+		_get(-1), 
+		last_rollback_from_state_id, 
+		_get(last_rollback_to_state_id), 
+		last_rollback_to_state_id
+	])
 
 	for state_id in range(to_state_id+1, last_state_id+1):
 		container[_get_index(state_id)] = oldest_value

@@ -7,7 +7,8 @@ var stopped = false
 onready var _screen_size = get_viewport_rect().size
 
 onready var synced = $synced
-onready var area = $Aligned/area
+onready var aligned = $aligned
+onready var area = $aligned/area
 
 func _ready():
 	synced.speed = DEFAULT_SPEED
@@ -29,7 +30,7 @@ func _physics_process(delta):
 		synced.direction.y = -synced.direction.y
 
 	# Check if scored
-	if SyncManager.is_server():
+	if not SyncManager.is_client():
 		if coord.x < 0:
 			get_parent().update_score(false)
 			_reset_ball(false)
@@ -38,21 +39,12 @@ func _physics_process(delta):
 			_reset_ball(true)
 
 # called by paddle.gd when ball hits the paddle
-func bounce(left, random):
-	reset_history()
-	if left:
-		synced.direction.x = abs(synced.direction.x)
-	else:
-		synced.direction.x = -abs(synced.direction.x)
+func bounce(left):
+	aligned.direction = Vector2(
+		abs(aligned.direction.x)*(1 if left else -1),
+		fmod(aligned.direction.y * 140.314 + 0.47, 1.0) - 0.5
+	).normalized()
 	synced.speed *= 1.1
-	if SyncManager.is_client():
-		# On client, we can't (or rather don't bother to) predict server-side random.
-		# If we do random here on Client, ball occasionally has to do weird things.
-		# We juse set this to zero, it always looks reasonably well.
-		synced.direction.y = 0
-	else:
-		synced.direction.y = random * 2.0 - 1
-	synced.direction = synced.direction.normalized()
 
 # called by pong.gd when the game ends
 func stop():
@@ -65,8 +57,3 @@ func _reset_ball(for_left):
 	else:
 		synced.direction = Vector2.RIGHT
 	synced.speed = DEFAULT_SPEED
-
-# !!! TODO use Aligned when implemented
-func reset_history():
-	synced.rollback('position')
-	synced.rollback('direction')

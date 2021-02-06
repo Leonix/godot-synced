@@ -42,12 +42,16 @@ func _physics_process(_d):
 	var rotation_property = synced.get_rotation_property()
 	var position_property = synced.get_position_property()
 
+	_set_parent = true
 	var old_state_id = get_time_depth_state_id()
 	for p in [position_property, rotation_property]:
 		var real_value = p._get(SyncManager.state_id)
 		var old_value = p._get(old_state_id)
-		self.set(p.auto_sync_property, old_value - real_value)
+		set(p.auto_sync_property, old_value - real_value)
 		#print('%s=%s' % [p.auto_sync_property, old_value - real_value])
+	_set_parent = false
+
+var _set_parent = false
 
 func get_time_depth_state_id():
 	var real_coord = synced.get('position')
@@ -64,10 +68,7 @@ func _get(prop):
 	var p = synced.synced_properties.get(prop) if synced and synced.synced_properties else null
 	if not p:
 		return null
-	if SyncManager.is_client():
-		return synced._get(prop)
-
-	if p.sync_strategy == SyncedProperty.CLIENT_OWNED:
+	if SyncManager.is_client() or p.sync_strategy == SyncedProperty.CLIENT_OWNED:
 		return synced._get(prop)
 	#if p.debug_log: print('aligned(%s)%s' % [
 	#	get_time_depth_state_id(), 
@@ -76,13 +77,14 @@ func _get(prop):
 	return p.read(get_time_depth_state_id())
 
 func _set(prop, value):
+	if _set_parent:
+		return
 	var p = synced.synced_properties.get(prop) if synced and synced.synced_properties else null
 	if not p:
 		return null
 	
 	assert(p.sync_strategy != SyncedProperty.CLIENT_OWNED, "Must not write to client-owned property via aligned.%s" % prop)
 	
-	if SyncManager.is_client():
-		[value] # !!! TODO
-	else:
-		pass # !!! TODO
+	synced.rollback(prop)
+	synced._set(prop, value)
+	return true

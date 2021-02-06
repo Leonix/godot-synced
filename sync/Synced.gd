@@ -472,9 +472,11 @@ puppet func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, val
 				property.write(st_id, frame[prop])
 		elif property.ready_to_read():
 			if is_csp and property.last_compensated_state_id < st_id:
-				assert(last_consumed_input_id)
-				if property.debug_log: print('srv_no_dt_csp')
-				correct_prediction_error(property, last_consumed_input_id, property._get(property.last_compensated_state_id))
+				if last_consumed_input_id:
+					if property.debug_log: print('srv_no_dt_csp')
+					correct_prediction_error(property, last_consumed_input_id, property._get(property.last_compensated_state_id))
+				else:
+					if property.debug_log: print('srv_no_dt_csp_nocorr')
 			elif not is_csp and property.last_state_id < st_id:
 				if property.debug_log: print('srv_no_dt')
 				property.write(st_id, property._get(-1))
@@ -572,6 +574,8 @@ func rollback(property_name=null):
 		if time_depth <= 0:
 			return
 		var last_valid_state_id = SyncManager.state_id - time_depth
+		if last_valid_state_id < 1:
+			last_valid_state_id = 1
 		for prop in (synced_properties if property_name == null else [property_name]):
 			var property = synced_properties[prop]
 			property.rollback(last_valid_state_id)
@@ -643,7 +647,7 @@ func _set(prop, value):
 		if not is_client_side_predicted(p) and p.sync_strategy != SyncedProperty.CLIENT_OWNED:
 			return true
 
-	if p.debug_log: print('lcl_data->%s' % SyncManager.get_local_peer().input_id)
+	if p.debug_log: print('lcl_data(->inp%s)' % SyncManager.get_local_peer().input_id)
 
 	var target_state_id = int(SyncManager.get_interpolation_state_id()) if SyncManager.is_client() else SyncManager.state_id
 	var is_rollback_recover_mode = false
@@ -675,4 +679,8 @@ func _set(prop, value):
 
 	assert(not SyncManager.is_client() or not p.ready_to_read() or is_client_side_predicted(p))
 	p.write(target_state_id, value)
+
+	if p.auto_sync_property != '':
+		get_parent().set(p.auto_sync_property, value)
+
 	return true

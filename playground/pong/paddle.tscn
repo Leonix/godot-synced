@@ -1,8 +1,10 @@
-[gd_scene load_steps=5 format=2]
+[gd_scene load_steps=7 format=2]
 
 [ext_resource path="res://playground/pong/logic/paddle.gd" type="Script" id=1]
 [ext_resource path="res://playground/pong/paddle.png" type="Texture" id=2]
+[ext_resource path="res://sync/Aligned.gd" type="Script" id=3]
 [ext_resource path="res://sync/Synced.gd" type="Script" id=4]
+[ext_resource path="res://sync/SyncedProperty.gd" type="Script" id=5]
 
 [sub_resource type="CapsuleShape2D" id=1]
 radius = 4.78568
@@ -32,4 +34,13 @@ __meta__ = {
 
 [node name="synced" type="Node" parent="."]
 script = ExtResource( 4 )
+
+[node name="position" type="Node" parent="synced"]
+script = ExtResource( 5 )
+interpolation = 1
+missing_state_interpolation = 1
+auto_sync_property = "position"
+
+[node name="aligned" type="Node2D" parent="."]
+script = ExtResource( 3 )
 [connection signal="area_entered" from="." to="." method="_on_paddle_area_enter"]
