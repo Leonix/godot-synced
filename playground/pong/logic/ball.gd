@@ -12,7 +12,7 @@ onready var area = $aligned/area
 
 func _ready():
 	synced.speed = DEFAULT_SPEED
-	synced.direction = Vector2.LEFT
+	synced.direction = Vector2.RIGHT
 
 func _physics_process(delta):
 	if not stopped:

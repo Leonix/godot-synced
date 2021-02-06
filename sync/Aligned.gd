@@ -72,7 +72,7 @@ func _get_synced_sibling():
 			return sibling
 
 func touch(prop):
-	synced.rollback(prop)
+	_set(prop, _get(prop))
 
 func _get(prop):
 	var p = synced.synced_properties.get(prop) if synced and synced.synced_properties else null
