@@ -85,6 +85,9 @@ var last_compensated_state_id: int = 0
 var last_rollback_from_state_id = 0
 var last_rollback_to_state_id = 0
 
+var latest_known_server_value = null
+var latest_known_server_state_id = null
+
 # Prints all successfull writes to this to console
 export var debug_log = false
 # When set, Synced will write to this SyncedProperty after each _physics_process()

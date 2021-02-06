@@ -176,6 +176,8 @@ func _update_prop_csp_tick():
 			property.rollback(property.last_compensated_state_id)
 			property.last_rollback_from_state_id = 0
 			property.last_rollback_to_state_id = 0
+			if property.latest_known_server_state_id > 0:
+				property._set(property.latest_known_server_state_id, property.latest_known_server_value)
 
 # Called when data from server comes.
 func _update_prop_csp_netframe(enabled_sendtable_ids):
@@ -490,6 +492,8 @@ puppet func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, val
 		var is_csp = is_client_side_predicted(property)
 
 		if prop in frame:
+			property.latest_known_server_value = frame[prop]
+			property.latest_known_server_state_id = st_id
 			if is_csp:
 				if last_consumed_input_id:
 					if property.debug_log: print('srv_dt_csp(%s)' % st_id)
@@ -502,12 +506,16 @@ puppet func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, val
 				property.last_compensated_state_id = st_id
 		elif property.ready_to_read():
 			if is_csp and property.last_compensated_state_id < st_id:
+				property.latest_known_server_value = property._get(property.last_compensated_state_id)
+				property.latest_known_server_state_id = st_id
 				if last_consumed_input_id:
 					if property.debug_log: print('srv_no_dt_csp(%s)' % st_id)
 					correct_prediction_error(property, last_consumed_input_id, property._get(property.last_compensated_state_id))
 				else:
 					if property.debug_log: print('srv_no_dt_csp_nocorr')
 			elif not is_csp and property.last_state_id < st_id:
+				property.latest_known_server_value = property._get(-1)
+				property.latest_known_server_state_id = st_id
 				if property.debug_log: print('srv_no_dt')
 				property.write(st_id, property._get(-1))
 				property.last_compensated_state_id = st_id

@@ -48,7 +48,7 @@ var client_interpolation_lag = 6
 var client_interpolation_history_size = 40
 
 # When switching to CSP, clients will smooth slow down over this many times their latency
-var client_csp_period_multiplier = 5.0
+var client_csp_period_multiplier = 3.0
 
 # How many times per second to send property values from Server to Client.
 var server_sendrate = 20

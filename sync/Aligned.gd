@@ -44,6 +44,8 @@ func _process(_d):
 	_set_parent = true
 	var old_state_id = get_time_depth_state_id()
 	for p in [position_property, rotation_property]:
+		if not p.ready_to_read():
+			continue
 		var real_value
 		var old_value
 		if SyncManager.is_server():
@@ -80,8 +82,6 @@ func _process(_d):
 				])
 				
 		else:
-			if not p.ready_to_read():
-				continue
 			real_value = p._get(-1)
 			old_value = p._get(-1)
 
