@@ -223,14 +223,19 @@ func is_client_side_predicted(property)->bool:
 	return interp_state_id < property.last_rollback_from_state_id + get_csp_smooth_period(property)
 
 # Client-side-predicted positions under Aligned show with a lag on client
-func get_csp_smooth_period(_property:SyncedProperty)->int:
-	var rollback_period = SyncManager.seq.current_latency_in_state_ids - SyncManager.client_interpolation_lag
-	if rollback_period <= 0:
-		rollback_period = 1
+func get_csp_smooth_period(property:SyncedProperty)->int:
+	var rollback_period = max(
+		SyncManager.seq.current_latency_in_state_ids - SyncManager.client_interpolation_lag, 
+		property.last_rollback_from_state_id - property.last_rollback_to_state_id
+	)
+	assert(rollback_period >= 0)
 	return int(rollback_period * SyncManager.client_csp_period_multiplier)
 
 func get_csp_lag(property:SyncedProperty)->float:
-	var max_lag = SyncManager.seq.current_latency_in_state_ids - SyncManager.client_interpolation_lag
+	var max_lag = max(
+		SyncManager.seq.current_latency_in_state_ids - SyncManager.client_interpolation_lag, 
+		property.last_rollback_from_state_id - property.last_rollback_to_state_id
+	)
 	if max_lag <= 0:
 		return 0.0
 	var target_state_id = SyncManager.seq.interpolation_state_id_frac
