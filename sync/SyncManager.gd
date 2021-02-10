@@ -104,13 +104,7 @@ var simulate_network_latency = null # [0.2, 0.3]
 var simulate_unreliable_packet_loss_percent = 0.0
 
 # SyncSequence is responsible for state_id and input_id management between client and server
-onready var seq = SyncSequence.new()
-
-#
-# Private vars zone
-#
-
-var SyncPeerScene = preload("res://sync/SyncPeer.tscn")
+var seq:SyncSequence = SyncSequence.new(self)
 
 func _ready():
 	get_local_peer()
@@ -162,6 +156,7 @@ func get_coord(obj):
 	elif obj is Node2D:
 		return obj.to_global(Vector2(0, 0))
 
+var SyncPeerScene = preload("res://sync/SyncPeer.tscn")
 # We use a special peer_id=0 to designate local peer.
 # This saves hustle in case get_tree().multiplayer.get_network_unique_id()
 # changes when peer connects and disconnects.
