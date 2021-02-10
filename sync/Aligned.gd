@@ -52,8 +52,7 @@ func _process(_d):
 			# On server, we show visuals as if back in time according to Time Depth.
 			real_value = p._get(-1)
 			old_value = p._get(old_state_id)
-		elif p.last_rollback_from_state_id > 0:
-		#elif synced.is_client_side_predicted(p):
+		elif synced.is_client_side_predicted(p) and p.last_rollback_from_state_id > 0:
 			# On client, we show predicted coordinates slightly back in time
 			var target_state_id = SyncManager.seq.interpolation_state_id_frac
 			real_value = p._get(int(target_state_id))
@@ -64,7 +63,7 @@ func _process(_d):
 					p.name, 
 					int(target_state_id) % 1000, 
 					int(old_state_id) % 1000,
-					p.last_rollback_from_state_id - p.last_rollback_to_state_id,
+					int(target_state_id) - int(old_state_id),
 					int(real_value.x),
 					int(old_value.x)
 				])
@@ -84,7 +83,7 @@ func _process(_d):
 			if false and get_parent().name == 'Ball' and p.name == 'position': # !!!
 				print("Aligned reset")
 			real_value = p._get(-1)
-			old_value = p._get(-1)
+			old_value = real_value
 
 		set(p.auto_sync_property, old_value - real_value)
 	_set_parent = false

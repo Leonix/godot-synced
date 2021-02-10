@@ -174,7 +174,7 @@ func _update_prop_csp_tick():
 		var property:SyncedProperty = synced_properties[prop]
 		if property.last_rollback_from_state_id > 0 and not is_client_side_predicted(property):
 			assert(property.last_rollback_from_state_id >= property.last_rollback_to_state_id)
-			var rollback_to = property.last_compensated_state_id
+			var rollback_to = SyncManager.seq.interpolation_state_id - SyncManager.seq.current_latency_in_state_ids
 			if property.latest_known_server_state_id > 0 and property.latest_known_server_state_id < rollback_to:
 				rollback_to = property.latest_known_server_state_id
 			property.rollback(int(rollback_to))
@@ -183,20 +183,13 @@ func _update_prop_csp_tick():
 			if property.latest_known_server_state_id > 0:
 				property._set(property.latest_known_server_state_id, property.latest_known_server_value)
 
-# Client's best attempt at figuring out own ping
-var _current_latency_in_state_ids = 0
-
 # Called when data from server comes.
-func _update_prop_csp_netframe(server_state_id, last_consumed_input_id, enabled_sendtable_ids):
+func _update_prop_csp_netframe(enabled_sendtable_ids):
 	assert(SyncManager.is_client())
 	var sendtable_id = -1
 	for prop in synced_properties:
 		sendtable_id += 1
 		_prop_is_server_csp[prop] = enabled_sendtable_ids and sendtable_id in enabled_sendtable_ids
-
-	if server_state_id and last_consumed_input_id:
-		var old_client_state_id = SyncManager.seq.input_id_to_state_id(last_consumed_input_id)
-		_current_latency_in_state_ids = int(move_toward(_current_latency_in_state_ids, server_state_id - old_client_state_id, 1))
 
 # Whether client-side prediction is enabled for given property.
 # On server this means that recent history for the property has been rolled back.
@@ -230,19 +223,14 @@ func is_client_side_predicted(property)->bool:
 	return interp_state_id < property.last_rollback_from_state_id + get_csp_smooth_period(property)
 
 # Client-side-predicted positions under Aligned show with a lag on client
-func get_csp_smooth_period(property:SyncedProperty)->int:
-	var rollback_period = max(
-		_current_latency_in_state_ids, 
-		property.last_rollback_from_state_id - property.last_rollback_to_state_id
-	)
-	assert(rollback_period >= 0)
+func get_csp_smooth_period(_property:SyncedProperty)->int:
+	var rollback_period = SyncManager.seq.current_latency_in_state_ids - SyncManager.client_interpolation_lag
+	if rollback_period <= 0:
+		rollback_period = 1
 	return int(rollback_period * SyncManager.client_csp_period_multiplier)
 
 func get_csp_lag(property:SyncedProperty)->float:
-	var max_lag = max(
-		_current_latency_in_state_ids, 
-		property.last_rollback_from_state_id - property.last_rollback_to_state_id
-	)
+	var max_lag = SyncManager.seq.current_latency_in_state_ids - SyncManager.client_interpolation_lag
 	if max_lag <= 0:
 		return 0.0
 	var target_state_id = SyncManager.seq.interpolation_state_id_frac
@@ -498,7 +486,7 @@ puppet func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, val
 		yield(get_tree().create_timer(delay), "timeout")
 		
 	if not last_consumed_input_id or last_consumed_input_id >= SyncManager.seq.last_consumed_input_id:
-		_update_prop_csp_netframe(st_id, last_consumed_input_id, csp_properties)
+		_update_prop_csp_netframe(csp_properties)
 	_update_prop_csp_tick()
 	if last_consumed_input_id and last_consumed_input_id > SyncManager.seq.last_consumed_input_id:
 		SyncManager.seq.last_consumed_input_id = last_consumed_input_id
@@ -538,7 +526,7 @@ puppet func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, val
 				property.last_compensated_state_id = st_id
 		
 	_last_frame_had_data = frame.size() > 0
-	SyncManager.seq.update_received_state_id_and_mtime(st_id)
+	SyncManager.seq.update_received_state_id_and_mtime(st_id, last_consumed_input_id)
 
 # Tightly pack data frame before sending
 # `sendtable` is an Array of Property names (strings) used to encode values.
