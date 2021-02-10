@@ -55,11 +55,11 @@ func _process(_d):
 		elif p.last_rollback_from_state_id > 0:
 		#elif synced.is_client_side_predicted(p):
 			# On client, we show predicted coordinates slightly back in time
-			var target_state_id = SyncManager.get_interpolation_state_id()
+			var target_state_id = SyncManager.seq.interpolation_state_id_frac
 			real_value = p._get(int(target_state_id))
 			old_state_id = target_state_id - synced.get_csp_lag(p)
 			old_value = p._get(old_state_id)
-			if false and get_parent().name == 'Ball': 
+			if false and get_parent().name == 'Ball' and p.name == 'position': # !!!
 				print("%s@%s(%s|%s)=%s(%s)" % [
 					p.name, 
 					int(target_state_id) % 1000, 
@@ -68,7 +68,7 @@ func _process(_d):
 					int(real_value.x),
 					int(old_value.x)
 				])
-				if false: print([int(p.last_state_id) % 1000, 
+				if false: print([int(p.last_state_id) % 1000, # !!!
 					int(p._get(-1).x),
 					int(p._get(-2).x),
 					int(p._get(-3).x),
@@ -80,8 +80,9 @@ func _process(_d):
 					int(p._get(-9).x),
 					int(p._get(-10).x),
 				])
-				
 		else:
+			if false and get_parent().name == 'Ball' and p.name == 'position': # !!!
+				print("Aligned reset")
 			real_value = p._get(-1)
 			old_value = p._get(-1)
 
@@ -95,8 +96,8 @@ func get_time_depth_state_id():
 		return 0 # not applicable, not used on clients
 	var real_coord = synced.get('position')
 	if real_coord == null:
-		return SyncManager.state_id
-	return SyncManager.state_id - SyncManager.get_time_depth(real_coord)
+		return SyncManager.seq.state_id
+	return SyncManager.seq.state_id - SyncManager.seq.get_time_depth(real_coord)
 
 func _get_synced_sibling():
 	for sibling in get_parent().get_children():
@@ -110,7 +111,7 @@ func _get(prop):
 	var p = synced.synced_properties.get(prop) if synced and synced.synced_properties else null
 	if not p:
 		return null
-	if SyncManager.is_client() or p.sync_strategy == SyncedProperty.CLIENT_OWNED:
+	if not SyncManager.is_server() or p.sync_strategy == SyncedProperty.CLIENT_OWNED or not p.ready_to_read():
 		return synced._get(prop)
 	return p.read(get_time_depth_state_id())
 

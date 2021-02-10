@@ -139,7 +139,7 @@ func send_input_batch():
 	#print('sending input batch first_input_id=%s ' % first_input_id, frames)
 	SyncManager.rpc_unreliable('receive_input_batch', 
 		first_input_id, 
-		SyncManager.input_id_to_state_id(first_input_id),
+		SyncManager.seq.input_id_to_state_id(first_input_id),
 		PoolIntArray(packed_batch[0]), 
 		PoolStringArray(packed_batch[1]), 
 		packed_batch[2]
@@ -338,7 +338,7 @@ func get_state_id()->int:
 			return int(prev2_reported_state_id)+2
 		else:
 			return int(prev_reported_state_id)+1
-	return SyncManager.state_id
+	return SyncManager.seq.state_id
 func set_state_id(_value):
 	pass # read only
 
