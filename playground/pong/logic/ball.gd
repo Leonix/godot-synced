@@ -33,11 +33,12 @@ func _physics_process(delta):
 			_reset_ball(true)
 
 # called by paddle.gd when ball hits the paddle
-func bounce(left):
+func bounce(left, rot):
+	var dir = (1 if left else -1)
 	aligned.touch('position')
 	aligned.direction = Vector2(
-		abs(aligned.direction.x)*(1 if left else -1),
-		fmod(aligned.direction.y * 140.314 + 0.47, 1.0) - 0.5
+		abs(aligned.direction.x)*dir,
+		3*(fposmod(dir*rot+PI/2, PI) / PI - 0.5)
 	).normalized()
 	aligned.speed *= 1.1
 

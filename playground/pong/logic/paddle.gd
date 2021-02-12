@@ -18,13 +18,15 @@ func _process(_delta):
 			_hide_you_label()
 
 func _physics_process(delta):
-#	if name == 'Player1':
-#		synced.synced_property('position').debug_log = true
 	_motion = synced.input.get_action_strength("move_down") - synced.input.get_action_strength("move_up")
 	_motion *= MOTION_SPEED
 	if _motion != 0.0:
 		position.y = clamp(position.y + _motion * delta, 16, _screen_size_y - 16)
 		aligned.position = position
+	look_at(get_viewport().get_mouse_position())
+	#if name == 'Player1':
+		#synced.synced_property('position').debug_log = true
+		#print(get_viewport().get_mouse_position(), ' ', rotation)
 
 func _hide_you_label():
 	_you_hidden = true
@@ -32,4 +34,4 @@ func _hide_you_label():
 
 func _on_paddle_area_enter(area):
 	if not SyncManager.is_client() or synced.is_local_peer():
-		area.find_parent('Ball').bounce(left)
+		area.find_parent('Ball').bounce(left, rotation)

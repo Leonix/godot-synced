@@ -334,8 +334,8 @@ func get_last_reliable_state_ids(peer_id=null)->Dictionary:
 # send at different state_ids).
 # If at all possible, Synced tries to send to all players the same data
 # to save CPU cycles on data encoding. This may not always be possible
-# due to Time Depth calculations (!!! not implemented yet)
-# and hidden (masked) properties different for different players (!!! again)
+# because Time Depth calculations and hidden (masked) properties differ
+# for different players (!!! masked properties are not implemented yet)
 func send_all_data_frames():
 	assert(SyncManager.is_server())
 	

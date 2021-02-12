@@ -41,6 +41,16 @@ interpolation = 1
 missing_state_interpolation = 1
 auto_sync_property = "position"
 
+[node name="rotation" type="Node" parent="synced"]
+script = ExtResource( 5 )
+sync_strategy = 4
+interpolation = 1
+missing_state_interpolation = 1
+auto_sync_property = "rotation"
+meta = {
+
+}
+
 [node name="aligned" type="Node2D" parent="."]
 script = ExtResource( 3 )
 [connection signal="area_entered" from="." to="." method="_on_paddle_area_enter"]
