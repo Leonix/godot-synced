@@ -110,7 +110,7 @@ func _get(prop):
 	var p = synced.synced_properties.get(prop) if synced and synced.synced_properties else null
 	if not p:
 		return null
-	if not SyncManager.is_server() or p.sync_strategy == SyncedProperty.CLIENT_OWNED or not p.ready_to_read():
+	if not SyncManager.is_server() or synced.is_client_owned(p) or not p.ready_to_read():
 		return synced._get(prop)
 	return p.read(get_time_depth_state_id())
 
@@ -121,8 +121,7 @@ func _set(prop, value):
 	if not p:
 		return null
 	
-	assert(p.sync_strategy != SyncedProperty.CLIENT_OWNED, "Must not write to client-owned property via aligned.%s" % prop)
-	
-	synced.rollback(prop)
+	if not synced.is_client_owned(p):
+		synced.rollback(prop)
 	synced._set(prop, value)
 	return true

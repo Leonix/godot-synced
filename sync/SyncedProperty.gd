@@ -33,15 +33,16 @@ enum {
 	# recently enough not to be considered stale) then prefer reliable channel 
 	# if some other property forced reliable, and agree for unreliable when all
 	# other properties use unreliable.
-	AUTO_SYNC,
-	
-	# Do not sent values of this property from Server to Client.
-	# Client sends these as part of their Input Frames.
-	CLIENT_OWNED
+	AUTO_SYNC
 }
 
 # See possible sync strategies in Enum above
-export(int, 'DO_NOT_SYNC', 'RELIABLE_SYNC', 'UNRELIABLE_SYNC', 'AUTO_SYNC', 'CLIENT_OWNED') var sync_strategy = AUTO_SYNC
+export(int, 'DO_NOT_SYNC', 'RELIABLE_SYNC', 'UNRELIABLE_SYNC', 'AUTO_SYNC') var sync_strategy = AUTO_SYNC
+
+# Do not sync values of this property from server to client,
+# if property belongs to local peer. Instead, clients send
+# values of this property to server as part of their input frames.
+export var is_client_owned = false
 
 # See AUTO_SYNC in enum above
 export var strat_stale_delay = 9

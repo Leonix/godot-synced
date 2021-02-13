@@ -46,7 +46,7 @@ var spawner: Synced = null # !!! CSP-created nodes are not implemented yet
 var input setget ,get_input
 
 # Contains child properties {name:SyncedProperty}. Determines sendtable.
-# Sorted by sync strategy: UNRELIABLE_SYNC, AUTO_SYNC, RELIABLE_SYNC, DO_NOT_SYNC, CLIENT_OWNED
+# Sorted by sync strategy: UNRELIABLE_SYNC, AUTO_SYNC, RELIABLE_SYNC, DO_NOT_SYNC
 # Among one strategy, order matches position in node tree.
 # Properties should go higher in node tree if expected to transmit more often.
 onready var synced_properties = prepare_synced_properties()
@@ -231,7 +231,7 @@ func is_client_side_predicted(property)->bool:
 	return interp_state_id < property.last_rollback_from_state_id + get_csp_smooth_period(property)
 
 func is_client_owned(property:SyncedProperty)->bool:
-	return is_local_peer() and property.sync_strategy == SyncedProperty.CLIENT_OWNED
+	return is_local_peer() and property.is_client_owned
 
 # Client-side-predicted positions under Aligned show with a lag on client
 func get_csp_smooth_period(property:SyncedProperty)->int:
@@ -280,8 +280,6 @@ func prepare_synced_properties():
 			SyncedProperty.RELIABLE_SYNC:
 				add_later.append(property)
 			SyncedProperty.DO_NOT_SYNC:
-				add_last.push_front(property)
-			SyncedProperty.CLIENT_OWNED:
 				add_last.append(property)
 			var unknown_strategy:
 				assert(false, 'Unknown sync strategy %s' % unknown_strategy)
@@ -349,6 +347,11 @@ func get_last_reliable_state_ids(peer_id=null)->Dictionary:
 # for different players (!!! masked properties are not implemented yet)
 func send_all_data_frames():
 	assert(SyncManager.is_server())
+
+	# Do not try to batch objects that belong to a peer.
+	# They are often client-side predicted, and contain client-owned properties,
+	# which means that data for different peers will be different. We don't even bother.
+	var can_batch = belongs_to_peer_id == null
 	
 	var csp_property_ids = null
 	var time_depth = null
@@ -362,14 +365,14 @@ func send_all_data_frames():
 				csp_property_ids.append(sendtable_id)
 		if csp_property_ids.size() <= 0:
 			csp_property_ids = null
+		else:
+			# Can not batch Synced objects that have at least one client-side predicted 
+			# property because data has to contain input_id which is different for peers.
+			can_batch = false
 
 		# time depth only makes sense when we have a sibling Aligned
 		# i.e. when CSP is enabled
 		time_depth = calculate_time_depth()
-
-	# Can not batch Synced objects that have at least one client-side predicted 
-	# property because data has to contain input_id which is different for peers.
-	var can_batch = csp_property_ids == null
 
 	# Can not batch objects that have different hidden (masked) status 
 	# for different players
@@ -386,8 +389,8 @@ func send_all_data_frames():
 		var time_depth_relative_to_peer = null
 		if time_depth and time_depth[1] != peer_id:
 			time_depth_relative_to_peer = time_depth
-
-		match prepare_data_frame(get_last_reliable_state_ids(null if can_batch else peer_id), time_depth_relative_to_peer):
+		
+		match prepare_data_frame(peer_id, get_last_reliable_state_ids(null if can_batch else peer_id), time_depth_relative_to_peer):
 			[var sendtable, var reliable_frame, var unreliable_frame]:
 
 				# simulate packet loss
@@ -454,7 +457,7 @@ func send_all_data_frames():
 	_last_frame_had_data = this_frame_had_data
 
 # Prepare data frame based on how long ago last reliable frame was sent to a peer
-func prepare_data_frame(prop_reliable_state_ids:Dictionary, time_depth):
+func prepare_data_frame(peer_id: int, prop_reliable_state_ids:Dictionary, time_depth)->Array:
 
 	# Gather protocol preference (reliable/unreliable/auto) from all properties
 	# and values to be send.
@@ -467,10 +470,11 @@ func prepare_data_frame(prop_reliable_state_ids:Dictionary, time_depth):
 
 	var sendtable = synced_properties.keys()
 	for prop in sendtable:
-		var property = synced_properties[prop]
+		var property:SyncedProperty = synced_properties[prop]
+		if property.is_client_owned and belongs_to_peer_id == peer_id:
+			continue
 		
 		match property.shouldsend(prop_reliable_state_ids.get(prop, 0), current_state_id):
-			[SyncedProperty.CLIENT_OWNED, ..],\
 			[SyncedProperty.DO_NOT_SYNC, ..]:
 				pass
 			[SyncedProperty.RELIABLE_SYNC, var value]:
@@ -510,6 +514,8 @@ puppet func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, val
 	var frame = parse_data_frame(synced_properties.keys(), sendtable_ids, values)
 	for prop in synced_properties:
 		var property:SyncedProperty = synced_properties[prop]
+		if is_client_owned(property):
+			continue
 		var is_csp = is_client_side_predicted(property)
 
 		if prop in frame:
@@ -643,8 +649,8 @@ func rollback(property_name=null):
 		return
 
 	for prop in (synced_properties if property_name == null else [property_name]):
-		var property = synced_properties[prop]
-		if property.sync_strategy == SyncedProperty.CLIENT_OWNED:
+		var property:SyncedProperty = synced_properties[prop]
+		if property.is_client_owned:
 			continue
 		if SyncManager.is_client():
 			if not is_client_side_predicted(property):
@@ -686,29 +692,24 @@ func _has_no_synced_siblings():
 
 func get_client_owned_values()->Array:
 	assert(SyncManager.is_client() and is_local_peer())
-	# properties in synced_properties are sorted client-owned last
 	var result = []
-	var keys = synced_properties.keys()
-	for i in range(synced_properties.size() - 1, -1, -1):
-		var p:SyncedProperty = synced_properties[keys[i]]
-		if p.sync_strategy != SyncedProperty.CLIENT_OWNED:
-			break
-		if not p.ready_to_read():
-			return []
-		result.append(p.read(-1))
+	for prop in synced_properties:
+		var p:SyncedProperty = synced_properties[prop]
+		if p.is_client_owned:
+			if not p.ready_to_read():
+				return []
+			result.append(p.read(-1))
 	return result
 	
 func set_client_owned_values(values:Array)->void:
-	assert(SyncManager.is_server())
-	# properties in synced_properties are sorted client-owned last
-	var vi = 0
-	for i in range(synced_properties.size() - 1, -1, -1):
-		var p:SyncedProperty = synced_properties[i]
-		if p.sync_strategy != SyncedProperty.CLIENT_OWNED:
-			break
-		assert(values.size() > vi)
-		p.write(SyncManager.seq.state_id, values[vi])
-		vi += 1
+	assert(SyncManager.is_server() and not is_local_peer())
+	var i = 0
+	for prop in synced_properties:
+		var p:SyncedProperty = synced_properties[prop]
+		if p.is_client_owned:
+			assert(values.size() > i)
+			p.write(SyncManager.seq.state_id, values[i])
+			i += 1
 
 func _get(prop):
 	var p = synced_properties.get(prop)
@@ -725,19 +726,18 @@ func _get(prop):
 
 func is_writable(p:SyncedProperty):
 	
-	# Initial write is always allowed
+	# We always allow the first initializing write, even on a client.
 	if not p.ready_to_read():
 		return true
 
-	# Client-owned properties are only writable if belong to local peer
-	if p.sync_strategy == SyncedProperty.CLIENT_OWNED:
+	# Client-owned properties are only writable if belong to local peer (even on Server)
+	if p.is_client_owned:
 		if not is_local_peer():
 			return false
 
 	# Normal interpolated properties are only writable on Server.
 	# Writes to non-client-owned and non-client-side-predicted
 	# properties is silently ignored on Client.
-	# But we always allow the first initializing write, even on a client.
 	if SyncManager.is_client():
 		if not is_client_side_predicted(p) and not is_client_owned(p):
 			return false

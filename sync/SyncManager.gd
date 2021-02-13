@@ -148,7 +148,7 @@ func synced_created(synced:Synced, _spawner=null):
 	# Remember this Synced if it contains a client-owned property
 	for prop in synced.synced_properties:
 		var p:SyncedProperty = synced.synced_properties[prop]
-		if p and p.sync_strategy == SyncedProperty.CLIENT_OWNED:
+		if p and p.is_client_owned:
 			_synced_with_client_owned[str(
 				get_tree().get_root().get_path_to(synced.get_parent())
 			)] = weakref(synced)
