@@ -84,6 +84,10 @@ func _physics_process(_delay):
 		# TODO: it is possible to invent more complicated srategies, like skipping 
 		# current frame if it matches either previous or the next one...
 		# At this point it feels premature to try that.
+		
+		# Server: update Client-owned properties of all Synced objects, 
+		# taking them from new input frame from each client
+		SyncManager.update_client_owned_properties(get_peer_id(), storage.read(input_id))
 
 # True if server did not have enough input frames from client this frame
 # and had to fall back to previous one. We disable correction of 
@@ -174,18 +178,37 @@ static func pack_input_batch(sendtable, frames):
 	var sendtable_ids = []
 	var sendtable_id = 0
 	var sendtable_type_by_id = {}
+	var sendtable_action_ids = {}
 	for type in sendtable:
 		for action in sendtable[type]:
 			sendtable_id += 1
+			sendtable_action_ids[action] = sendtable_id
 			for frame in frames:
 				if frame[action] != 0:
 					sendtable_ids.append(sendtable_id)
 					sendtable_type_by_id[sendtable_id] = type
 					break
 	
-	# (2) is not supported yet
-	var node_paths = [] 
-	
+	# Figure out client-owned properties we need to send
+	# COPs are part of frames, keys matching pattern cop__%node-path%
+	# value is an array of all COP values of given Synced object
+	var client_owned_properties = {}
+	for frame in frames:
+		for action in frame:
+			if not (action in sendtable_action_ids):
+				match Array(action.split('__')):
+					['cop', var node_path]:
+						assert(frame[action] is Array and frame[action].size() > 0)
+						if node_path in client_owned_properties:
+							assert(frame[action].size() == client_owned_properties[node_path])
+						else:
+							client_owned_properties[node_path] = frame[action].size()
+	var node_paths = []
+	for node_path in client_owned_properties:
+		node_paths.append(node_path)
+		for _i in range(1, client_owned_properties[node_path]):
+			node_paths.append('')
+
 	# (3) pack values
 	var values = []
 	if sendtable_ids.size() > 0 or node_paths.size() > 0:
@@ -206,8 +229,18 @@ static func pack_input_batch(sendtable, frames):
 							assert(type == 'float', 'Unknown sendtable type %s' % type)
 							floats.append(float(frame[action]))
 					
-			# !!! TODO: pack client-owned properties
+			# pack client-owned properties
 			var client_owned = []
+			for node_path in client_owned_properties:
+				var action = 'cop__' + node_path
+				if action in frame:
+					assert(frame[action] is Array)
+					client_owned += frame[action] # append_array
+				else:
+					# we send nulls when synced does not exist on client for some frames,
+					# in case it has just been created or just removed
+					for _i in range(0, client_owned_properties[node_path]):
+						client_owned.append(null)
 			
 			if floats.size() > 0 or client_owned.size() > 0:
 				value.append(PoolRealArray(floats))
@@ -263,6 +296,7 @@ static func parse_input_batch(sendtable, sendtable_ids: Array, node_paths: Array
 						assert(client_owned == null, 'Too much data')
 						client_owned = v
 
+		# write sendtable-based actions to input frame
 		var frame = empty_frame.duplicate()
 		var bool_i = 0
 		var float_i = 0
@@ -280,9 +314,30 @@ static func parse_input_batch(sendtable, sendtable_ids: Array, node_paths: Array
 						assert(floats != null and float_i < floats.size(), 'Not enough floats in Input frame batch')
 						frame[action] = floats[float_i]
 						float_i += 1
-		result.append(frame)
 		assert((float_i == 0 and floats == null) or float_i == floats.size(), "Too much floats in input frame batch")
-		assert(node_paths.size() <= 0, "Sending Client-Owned Properties is not implemented yet") # !!!
+
+		# write client-owned properties to input frame
+		if node_paths.size() <= 0:
+			assert(client_owned == null or client_owned == [])
+		else:
+			assert(client_owned != null and client_owned.size() == node_paths.size())
+			var node_path:String = ''
+			var cops:Array = []
+			var i:int = -1
+			for v in client_owned:
+				i += 1
+				if node_paths[i] != '':
+					if node_path != '' and cops.size() > 0:
+						frame['cop__' + node_path] = cops
+					node_path = node_paths[i]
+					cops = []
+				if v != null:
+					cops.append(v)
+			if node_path != '' and cops.size() > 0:
+				frame['cop__' + node_path] = cops
+			
+		result.append(frame)
+
 	return result
 
 func sample_input():
@@ -311,6 +366,9 @@ func get_empty_input_frame():
 
 func is_local():
 	return self.name == '0'
+
+func get_peer_id():
+	return int(self.name)
 
 func get_state_id()->int:
 	if not is_local():

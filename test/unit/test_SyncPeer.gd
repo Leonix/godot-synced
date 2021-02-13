@@ -110,6 +110,25 @@ func test_frame_batcher_parser6():
 	var frames_out = obj.parse_input_batch(sendtable3, packed_batch[0], packed_batch[1], packed_batch[2])
 	assert_eq_deep(frames, frames_out)
 
+func test_frame_batcher_parser7():
+	var frames = [{
+		'bool_qqqq': 0,
+		'bool_zzzz': 1,
+		'float_q': 100.5,
+		'float_z': 0.0,
+		'cop__Player1': [1, 2.0, 3],
+	}, {
+		'bool_qqqq': 0,
+		'bool_zzzz': 0,
+		'float_q': 0.0,
+		'float_z': 0.0,
+		'cop__Player2': [3, 5.0, 9],
+	}]
+	var packed_batch = obj.pack_input_batch(sendtable1, frames)
+	assert_true(packed_batch[1].size() > 0)
+	var frames_out = obj.parse_input_batch(sendtable1, packed_batch[0], packed_batch[1], packed_batch[2])
+	assert_eq_deep(frames, frames_out)
+
 func test_cb_get_index():
 	var prop = SyncPeer.CircularBuffer.new(4, 0)
 	assert_true(prop is Reference)

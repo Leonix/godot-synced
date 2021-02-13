@@ -118,10 +118,6 @@ func _process(delta):
 func _physics_process(delta):
 	seq._physics_process(delta)
 
-	# Server: update Client-owned properties of all Synced objects, 
-	# taking them from new input frame from each client
-	# !!!
-
 # Called from SyncPeer. RPC goes through this proxy rather than SyncPeer itself
 # because of differences in node path between server and client.
 master func receive_input_batch(first_input_id: int, first_state_id: int, sendtable_ids: Array, node_paths: Array, values: Array):
@@ -148,6 +144,23 @@ func synced_created(synced:Synced, _spawner=null):
 	synced.connect("peer_id_changed", seq, "update_synced_belong_to_players", [synced])
 	if synced.belongs_to_peer_id != null:
 		seq.update_synced_belong_to_players(null, synced.belongs_to_peer_id, synced)
+	
+	# Remember this Synced if it contains a client-owned property
+	for prop in synced.synced_properties:
+		var p:SyncedProperty = synced.synced_properties[prop]
+		if p and p.sync_strategy == SyncedProperty.CLIENT_OWNED:
+			_synced_with_client_owned[str(
+				get_tree().current_scene.get_path_to(synced.get_parent())
+			)] = weakref(synced)
+			break
+
+# All Synced objects with at least one client-owned property; node path from current scene => weakref
+var _synced_with_client_owned = {}
+
+# Update client-owned properties using input frame that came from client over the network
+func update_client_owned_properties(peer_id:int, values: Dictionary)->void:
+	assert(SyncManager.is_server() and peer_id != 0)
+	# !!!!
 
 # Common helper to get coordinate of Spatial and Node2D in a similar way
 func get_coord(obj):

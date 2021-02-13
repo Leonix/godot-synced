@@ -76,6 +76,9 @@ export var log_property_values_each_tick = false
 signal peer_id_changed(before, after)
 
 func _ready():
+	# make sure there are no other Synced siblings
+	assert(_has_no_synced_siblings(), "%s is only allowed to contain one Synced object" % get_parent().get_path())
+	
 	setup_auto_update_parent()
 	SyncManager.synced_created(self, spawner)
 
@@ -727,4 +730,10 @@ func _set(prop, value):
 	if p.auto_sync_property != '':
 		get_parent().set(p.auto_sync_property, value)
 
+	return true
+
+func _has_no_synced_siblings():
+	for node in get_parent().get_children():
+		if node is get_script() and node != self:
+			return false
 	return true
