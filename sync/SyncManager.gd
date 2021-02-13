@@ -150,7 +150,7 @@ func synced_created(synced:Synced, _spawner=null):
 		var p:SyncedProperty = synced.synced_properties[prop]
 		if p and p.sync_strategy == SyncedProperty.CLIENT_OWNED:
 			_synced_with_client_owned[str(
-				get_tree().current_scene.get_path_to(synced.get_parent())
+				get_tree().get_root().get_path_to(synced.get_parent())
 			)] = weakref(synced)
 			break
 
@@ -158,9 +158,36 @@ func synced_created(synced:Synced, _spawner=null):
 var _synced_with_client_owned = {}
 
 # Update client-owned properties using input frame that came from client over the network
-func update_client_owned_properties(peer_id:int, values: Dictionary)->void:
+func update_client_owned_properties(peer_id:int, cop_values: Dictionary)->void:
 	assert(SyncManager.is_server() and peer_id != 0)
-	# !!!!
+	var remove = []
+	for node_path in _synced_with_client_owned:
+		var synced:Synced = (_synced_with_client_owned[node_path] as WeakRef).get_ref()
+		if synced == null:
+			remove.append(node_path)
+		elif node_path in cop_values and synced.belongs_to_peer_id == peer_id:
+			synced.set_client_owned_values(cop_values[node_path])
+	for node_path in remove:
+		_synced_with_client_owned.erase(node_path)
+
+# Get all tracked client-owned propoerties to add to client input frame
+func sample_client_owned_properties()->Dictionary:
+	assert(SyncManager.is_client())
+	var values = {}
+	var remove = []
+	for node_path in _synced_with_client_owned:
+		var synced:Synced = (_synced_with_client_owned[node_path] as WeakRef).get_ref()
+		if synced == null:
+			remove.append(node_path)
+		elif synced.is_local_peer():
+			# Will return empty v when not ready to read yet; ignore
+			var v = synced.get_client_owned_values()
+			if v and v.size() > 0:
+				values[node_path] = v
+
+	for node_path in remove:
+		_synced_with_client_owned.erase(node_path)
+	return values
 
 # Common helper to get coordinate of Spatial and Node2D in a similar way
 func get_coord(obj):

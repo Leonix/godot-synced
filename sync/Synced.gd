@@ -94,7 +94,7 @@ func _physics_process(_delta):
 	if _should_auto_read_parent:
 		for property in get_children():
 			if property.auto_sync_property != '':
-				if not SyncManager.is_client() or is_client_side_predicted(property):
+				if not SyncManager.is_client() or is_client_side_predicted(property) or is_client_owned(property):
 					_auto_sync_from_parent(property)
 
 	if SyncManager.is_client():
@@ -140,11 +140,16 @@ func _auto_sync_all_to_parent():
 func _auto_sync_from_parent(property: SyncedProperty):
 	assert(property.auto_sync_property)
 	var value = get_parent().get(property.auto_sync_property)
-	if property.debug_log: print('autosync_from_parent')
-	self._set(property.name, value)
-	
+	if is_writable(property):
+		if property.debug_log: print('autosync_from_parent', value)
+		self._set(property.name, value)
+	else:
+		# revert changes that may have been made by game code
+		_auto_sync_to_parent(property)
+
 func _auto_sync_to_parent(property: SyncedProperty):
 	assert(property.auto_sync_property)
+	#if property.debug_log: print('autosync_to_parent', self._get(property.name))
 	get_parent().set(property.auto_sync_property, self._get(property.name))
 
 func setup_auto_update_parent():
@@ -224,6 +229,9 @@ func is_client_side_predicted(property)->bool:
 		
 	# CSP is disabled on client after a period to smoothly drop required number of states
 	return interp_state_id < property.last_rollback_from_state_id + get_csp_smooth_period(property)
+
+func is_client_owned(property:SyncedProperty)->bool:
+	return is_local_peer() and property.sync_strategy == SyncedProperty.CLIENT_OWNED
 
 # Client-side-predicted positions under Aligned show with a lag on client
 func get_csp_smooth_period(property:SyncedProperty)->int:
@@ -669,7 +677,39 @@ func set_belongs_to_peer_id(peer_id):
 	var old_peer_id = belongs_to_peer_id
 	belongs_to_peer_id = peer_id
 	emit_signal("peer_id_changed", old_peer_id, belongs_to_peer_id)
+
+func _has_no_synced_siblings():
+	for node in get_parent().get_children():
+		if node is get_script() and node != self:
+			return false
+	return true
+
+func get_client_owned_values()->Array:
+	assert(SyncManager.is_client() and is_local_peer())
+	# properties in synced_properties are sorted client-owned last
+	var result = []
+	var keys = synced_properties.keys()
+	for i in range(synced_properties.size() - 1, -1, -1):
+		var p:SyncedProperty = synced_properties[keys[i]]
+		if p.sync_strategy != SyncedProperty.CLIENT_OWNED:
+			break
+		if not p.ready_to_read():
+			return []
+		result.append(p.read(-1))
+	return result
 	
+func set_client_owned_values(values:Array)->void:
+	assert(SyncManager.is_server())
+	# properties in synced_properties are sorted client-owned last
+	var vi = 0
+	for i in range(synced_properties.size() - 1, -1, -1):
+		var p:SyncedProperty = synced_properties[i]
+		if p.sync_strategy != SyncedProperty.CLIENT_OWNED:
+			break
+		assert(values.size() > vi)
+		p.write(SyncManager.seq.state_id, values[vi])
+		vi += 1
+
 func _get(prop):
 	var p = synced_properties.get(prop)
 	if not p:
@@ -677,25 +717,41 @@ func _get(prop):
 	if not p.ready_to_read() and p.auto_sync_property != '':
 		_auto_sync_from_parent(p)
 	assert(p.ready_to_read(), "Attempt to read from %s:%s before any writes happened" % [get_path(), prop])
-	if not SyncManager.is_client() or p.sync_strategy == SyncedProperty.CLIENT_OWNED:
+	if not SyncManager.is_client() or is_client_owned(p):
 		return p.read(-1)
 	if SyncManager.is_client() and is_client_side_predicted(p):
 		return p.read(SyncManager.seq.interpolation_state_id)
 	return p.read(SyncManager.seq.interpolation_state_id_frac)
+
+func is_writable(p:SyncedProperty):
+	
+	# Initial write is always allowed
+	if not p.ready_to_read():
+		return true
+
+	# Client-owned properties are only writable if belong to local peer
+	if p.sync_strategy == SyncedProperty.CLIENT_OWNED:
+		if not is_local_peer():
+			return false
+
+	# Normal interpolated properties are only writable on Server.
+	# Writes to non-client-owned and non-client-side-predicted
+	# properties is silently ignored on Client.
+	# But we always allow the first initializing write, even on a client.
+	if SyncManager.is_client():
+		if not is_client_side_predicted(p) and not is_client_owned(p):
+			return false
+
+	return true
 
 func _set(prop, value):
 	var p = synced_properties.get(prop)
 	if not p:
 		return
 	assert(p.ready_to_write(), "Improperly initialized SyncedProperty %s:%s" % [get_path(), prop])
-	
-	# Normal interpolated properties are only writable on Server.
-	# Writes to non-client-owned and non-client-side-predicted
-	# properties is silently ignored on Client.
-	# But we always allow the first initializing write, even on a client.
-	if p.ready_to_read() and SyncManager.is_client():
-		if not is_client_side_predicted(p) and p.sync_strategy != SyncedProperty.CLIENT_OWNED:
-			return true
+
+	if not is_writable(p):
+		return true
 
 	if p.debug_log: print('lcl_data(->inp%s)' % SyncManager.get_local_peer().input_id)
 
@@ -724,16 +780,10 @@ func _set(prop, value):
 		if p.missing_state_interpolation == SyncedProperty.NO_INTERPOLATION:
 			p.write(target_state_id-1, value)
 
-	assert(not SyncManager.is_client() or not p.ready_to_read() or is_client_side_predicted(p))
+	assert(not SyncManager.is_client() or not p.ready_to_read() or is_client_side_predicted(p) or is_writable(p))
 	p.write(target_state_id, value)
 
 	if p.auto_sync_property != '':
 		get_parent().set(p.auto_sync_property, value)
 
-	return true
-
-func _has_no_synced_siblings():
-	for node in get_parent().get_children():
-		if node is get_script() and node != self:
-			return false
 	return true

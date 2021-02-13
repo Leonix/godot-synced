@@ -87,7 +87,9 @@ func _physics_process(_delay):
 		
 		# Server: update Client-owned properties of all Synced objects, 
 		# taking them from new input frame from each client
-		SyncManager.update_client_owned_properties(get_peer_id(), storage.read(input_id))
+		var cop_values = _get_cop_values(storage.read(input_id))
+		if cop_values.size() > 0:
+			SyncManager.update_client_owned_properties(get_peer_id(), cop_values)
 
 # True if server did not have enough input frames from client this frame
 # and had to fall back to previous one. We disable correction of 
@@ -196,7 +198,7 @@ static func pack_input_batch(sendtable, frames):
 	for frame in frames:
 		for action in frame:
 			if not (action in sendtable_action_ids):
-				match Array(action.split('__')):
+				match Array(action.split('__', true, 1)):
 					['cop', var node_path]:
 						assert(frame[action] is Array and frame[action].size() > 0)
 						if node_path in client_owned_properties:
@@ -343,6 +345,8 @@ static func parse_input_batch(sendtable, sendtable_ids: Array, node_paths: Array
 func sample_input():
 	assert(is_local())
 	var result =  {}
+	
+	# add sendtable-based input actions to frame
 	for type in input_sendtable:
 		for action in input_sendtable[type]:
 			match type:
@@ -352,6 +356,22 @@ func sample_input():
 					result[action] = Input.get_action_strength(action)
 				_:
 					assert(false, "Unknown input action class '%s'" % type)
+
+	# add client-owned properties to frame
+	if SyncManager.is_client():
+		var cop_values = SyncManager.sample_client_owned_properties()
+		for node_path in cop_values:
+			var arr = cop_values[node_path]
+			assert(arr is Array and arr.size() > 0)
+			result['cop__'+node_path] = arr
+	
+	return result
+
+func _get_cop_values(frame:Dictionary)->Dictionary:
+	var result = {}
+	for action in frame:
+		if action.substr(0, 5) == 'cop__':
+			result[action.substr(5)] = frame[action]
 	return result
 
 func get_empty_input_frame():
