@@ -26,6 +26,8 @@ func _physics_process(delta):
 		position.y = clamp(position.y + _motion * delta, 16, _screen_size_y - 16)
 		aligned.position = position
 	look_at(get_viewport().get_mouse_position())
+	if not left:
+		rotation += PI
 
 func _hide_you_label():
 	_you_hidden = true
