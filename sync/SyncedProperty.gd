@@ -39,10 +39,29 @@ enum {
 # See possible sync strategies in Enum above
 export(int, 'DO_NOT_SYNC', 'RELIABLE_SYNC', 'UNRELIABLE_SYNC', 'AUTO_SYNC') var sync_strategy = AUTO_SYNC
 
-# Do not sync values of this property from server to client,
-# if property belongs to local peer. Instead, clients send
-# values of this property to server as part of their input frames.
-export var is_client_owned = false
+# Possible ownership
+enum {
+	# Client-side writes are normally ignored. Server writes are allowed.
+	# Clients receive values over the network (applies network delay).
+	# Temporary client-side prediction mode can be enabled.
+	OWNERSHIP_SERVER,
+
+	# When Synced does not belong to any peer, this is the same as OWNERSHIP_SERVER.
+	# If Synced belongs to a peer, do not sync values of this property from server to client.
+	# Instead, writes on server are ignored, writes on clients are allowed and
+	# clients send values of this property to server as part of their input frames.
+	# This is the default for built-in `rotation` sync.
+	OWNERSHIP_CLIENT_IF_PEER,
+	
+	# When Synced does not belong to any peer, this is the same as OWNERSHIP_SERVER.
+	# If Synced belongs to a peer, writes on client are allowed as well as on server.
+	# Values written by client are eventually corrected when valid server state
+	# comes from the server.
+	CLIENT_SIDE_PREDICTED_IF_PEER
+}
+
+# See possible sync strategies in Enum above
+export(int, 'OWNERSHIP_SERVER', 'OWNERSHIP_CLIENT_IF_PEER', 'CLIENT_SIDE_PREDICTED_IF_PEER') var ownership = OWNERSHIP_SERVER
 
 # See AUTO_SYNC in enum above
 export var strat_stale_delay = 9
@@ -410,7 +429,7 @@ func ready_to_write():
 
 static func is_valid_option(name):
 	match name:
-		'auto_sync_property', 'debug_log', \
+		'auto_sync_property', 'debug_log', 'ownership', \
 		'sync_strategy', 'strat_stale_delay', 'interpolation', \
 		'missing_state_interpolation', 'max_extrapolation', 'container':
 			return true

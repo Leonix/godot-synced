@@ -206,11 +206,32 @@ func _update_prop_csp_netframe(enabled_sendtable_ids):
 func is_client_side_predicted(property)->bool:
 	if not property is SyncedProperty:
 		property = synced_property(property)
+	property = property as SyncedProperty
 	if SyncManager.is_server():
+		if belongs_to_peer_id != null:
+			if property.ownership == SyncedProperty.CLIENT_SIDE_PREDICTED_IF_PEER:
+				return true
+			elif property.ownership == SyncedProperty.OWNERSHIP_CLIENT_IF_PEER:
+				return false
+		# Temporary CSP recently enabled?
 		return SyncManager.seq.state_id < property.last_rollback_from_state_id*2 - property.last_rollback_to_state_id
 	if not SyncManager.is_client():
 		return false;
-		
+	
+	if is_local_peer():
+		if property.ownership == SyncedProperty.OWNERSHIP_CLIENT_IF_PEER:
+			return false
+		if property.ownership == SyncedProperty.CLIENT_SIDE_PREDICTED_IF_PEER:
+			return true
+
+	# Below logic is ...
+	assert(SyncManager.is_client() and (
+		# ...either OWNERSHIP_SERVER on Synced belonging to local peer...
+		(is_local_peer() and property.ownership == SyncedProperty.OWNERSHIP_SERVER)
+		# ...or any ownership if not belongs to local peer.
+		or (belongs_to_peer_id == null)
+	))
+
 	var prop = property.name
 
 	# CSP is forced on client at least until input_id that enabled CSP
@@ -230,8 +251,12 @@ func is_client_side_predicted(property)->bool:
 	# CSP is disabled on client after a period to smoothly drop required number of states
 	return interp_state_id < property.last_rollback_from_state_id + get_csp_smooth_period(property)
 
-func is_client_owned(property:SyncedProperty)->bool:
-	return is_local_peer() and property.is_client_owned
+func is_client_owned(property:SyncedProperty, peer_id=0)->bool:
+	if property.ownership != SyncedProperty.OWNERSHIP_CLIENT_IF_PEER:
+		return false
+	if peer_id is String and peer_id == 'any':
+		return belongs_to_peer_id != null
+	return belongs_to_peer_id == int(peer_id)
 
 # Client-side-predicted positions under Aligned show with a lag on client
 func get_csp_smooth_period(property:SyncedProperty)->int:
@@ -300,6 +325,7 @@ func setup_position_sync():
 			assert(property.auto_sync_property == prop, '"%s" is a built in property name. When you add it manually, it must still auto update "%s" on parent node' % [prop, prop])
 		else:
 			property = add_synced_property(prop, SyncedProperty.new({
+				ownership = SyncedProperty.OWNERSHIP_CLIENT_IF_PEER if prop == 'rotation' else SyncedProperty.CLIENT_SIDE_PREDICTED_IF_PEER,
 				missing_state_interpolation = SyncedProperty.LINEAR_INTERPOLATION,
 				interpolation = SyncedProperty.LINEAR_INTERPOLATION,
 				sync_strategy = SyncedProperty.AUTO_SYNC,
@@ -471,7 +497,7 @@ func prepare_data_frame(peer_id: int, prop_reliable_state_ids:Dictionary, time_d
 	var sendtable = synced_properties.keys()
 	for prop in sendtable:
 		var property:SyncedProperty = synced_properties[prop]
-		if property.is_client_owned and belongs_to_peer_id == peer_id:
+		if is_client_owned(property, peer_id):
 			continue
 		
 		match property.shouldsend(prop_reliable_state_ids.get(prop, 0), current_state_id):
@@ -650,7 +676,7 @@ func rollback(property_name=null):
 
 	for prop in (synced_properties if property_name == null else [property_name]):
 		var property:SyncedProperty = synced_properties[prop]
-		if property.is_client_owned:
+		if is_client_owned(property, 'any'):
 			continue
 		if SyncManager.is_client():
 			if not is_client_side_predicted(property):
@@ -695,7 +721,7 @@ func get_client_owned_values()->Array:
 	var result = []
 	for prop in synced_properties:
 		var p:SyncedProperty = synced_properties[prop]
-		if p.is_client_owned:
+		if is_client_owned(p):
 			if not p.ready_to_read():
 				return []
 			result.append(p.read(-1))
@@ -706,7 +732,7 @@ func set_client_owned_values(values:Array)->void:
 	var i = 0
 	for prop in synced_properties:
 		var p:SyncedProperty = synced_properties[prop]
-		if p.is_client_owned:
+		if is_client_owned(p, 'any'):
 			assert(values.size() > i)
 			p.write(SyncManager.seq.state_id, values[i])
 			i += 1
@@ -731,7 +757,7 @@ func is_writable(p:SyncedProperty):
 		return true
 
 	# Client-owned properties are only writable if belong to local peer (even on Server)
-	if p.is_client_owned:
+	if is_client_owned(p, 'any'):
 		if not is_local_peer():
 			return false
 
@@ -757,7 +783,7 @@ func _set(prop, value):
 
 	var target_state_id = SyncManager.seq.interpolation_state_id if SyncManager.is_client() else SyncManager.seq.state_id
 	
-	if p.ready_to_read() and SyncManager.is_server() and is_client_side_predicted(p) and target_state_id >= p.last_rollback_from_state_id:
+	if p.ready_to_read() and SyncManager.is_server() and is_client_side_predicted(p) and target_state_id >= p.last_rollback_from_state_id and p.last_rollback_from_state_id > 0:
 		# When the property has been recently rolled back, we do a special write mode.
 		# Writing two indices at once allows to gradually regain frames lost at rollback.
 		assert(p.last_rollback_to_state_id < p.last_rollback_from_state_id)
@@ -780,7 +806,6 @@ func _set(prop, value):
 		if p.missing_state_interpolation == SyncedProperty.NO_INTERPOLATION:
 			p.write(target_state_id-1, value)
 
-	assert(not SyncManager.is_client() or not p.ready_to_read() or is_client_side_predicted(p) or is_writable(p))
 	p.write(target_state_id, value)
 
 	if p.auto_sync_property != '':

@@ -27,19 +27,9 @@ modulate = Color( 0, 1, 1, 1 )
 position = Vector2( 32.49, 188.622 )
 left = true
 
-[node name="rotation" parent="Player1/synced" index="1"]
-meta = {
-
-}
-
 [node name="Player2" parent="." instance=ExtResource( 3 )]
 modulate = Color( 1, 0, 1, 1 )
 position = Vector2( 608.88, 188.622 )
-
-[node name="rotation" parent="Player2/synced" index="1"]
-meta = {
-
-}
 
 [node name="Ball" parent="." instance=ExtResource( 4 )]
 position = Vector2( 320.387, 189.525 )
