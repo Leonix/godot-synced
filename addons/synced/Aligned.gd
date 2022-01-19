@@ -14,7 +14,7 @@ class_name Aligned
 #
 # Transform and rotation from this node are only applied on Server.
 # `Aligned` does nothing to compendate how clients see the world.
-# For cliend-side counterpart, see SyncedProperty.time_depth
+# For client-side counterpart, see SyncedProperty.time_depth
 #
 
 onready var synced: Synced

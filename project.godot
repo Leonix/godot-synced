@@ -12,32 +12,32 @@ _global_script_classes=[ {
 "base": "Node",
 "class": "Aligned",
 "language": "GDScript",
-"path": "res://sync/Aligned.gd"
+"path": "res://addons/synced/Aligned.gd"
 }, {
 "base": "Node",
 "class": "SyncInputFacade",
 "language": "GDScript",
-"path": "res://sync/SyncInputFacade.gd"
+"path": "res://addons/synced/SyncInputFacade.gd"
 }, {
 "base": "Node",
 "class": "SyncPeer",
 "language": "GDScript",
-"path": "res://sync/SyncPeer.gd"
+"path": "res://addons/synced/SyncPeer.gd"
 }, {
 "base": "Reference",
 "class": "SyncSequence",
 "language": "GDScript",
-"path": "res://sync/SyncSequence.gd"
+"path": "res://addons/synced/SyncSequence.gd"
 }, {
 "base": "Node",
 "class": "Synced",
 "language": "GDScript",
-"path": "res://sync/Synced.gd"
+"path": "res://addons/synced/Synced.gd"
 }, {
 "base": "Node",
 "class": "SyncedProperty",
 "language": "GDScript",
-"path": "res://sync/SyncedProperty.gd"
+"path": "res://addons/synced/SyncedProperty.gd"
 } ]
 _global_script_class_icons={
 "Aligned": "",
@@ -56,7 +56,7 @@ config/icon="res://icon.png"
 
 [autoload]
 
-SyncManager="*res://sync/SyncManager.gd"
+SyncManager="*res://addons/synced/SyncManager.gd"
 
 [debug]
 

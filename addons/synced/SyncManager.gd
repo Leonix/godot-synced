@@ -1,7 +1,7 @@
 extends Node
 
 #
-# Sync lib requires this class to be autoloaded as SyncManager singleton.
+# Synced lib requires this class to be autoloaded as SyncManager singleton.
 #
 # Does the RPC to send Input frames (keyboard and mouse sampling status)
 # from Client to Server. Stores data in child nodes, see SyncPeer.tscn scene.
@@ -196,7 +196,7 @@ func get_coord(obj):
 	elif obj is Node2D:
 		return obj.to_global(Vector2(0, 0))
 
-var SyncPeerScene = preload("res://sync/SyncPeer.tscn")
+var SyncPeerScene = preload("res://addons/synced/SyncPeer.tscn")
 # We use a special peer_id=0 to designate local peer.
 # This saves hustle in case get_tree().multiplayer.get_network_unique_id()
 # changes when peer connects and disconnects.

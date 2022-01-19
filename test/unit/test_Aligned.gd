@@ -1,6 +1,6 @@
 extends "res://addons/gut/test.gd"
 
-var AlignedReference = preload("res://sync/Aligned.gd")
+var AlignedReference = preload("res://addons/synced/Aligned.gd")
 
 func test_basic_td_node2d():
 	var node = autofree(Node2D.new())

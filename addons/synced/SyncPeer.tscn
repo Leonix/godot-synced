@@ -1,7 +1,7 @@
 [gd_scene load_steps=3 format=2]
 
-[ext_resource path="res://sync/SyncPeer.gd" type="Script" id=1]
-[ext_resource path="res://sync/SyncInputFacade.gd" type="Script" id=2]
+[ext_resource path="res://addons/synced/SyncPeer.gd" type="Script" id=1]
+[ext_resource path="res://addons/synced/SyncInputFacade.gd" type="Script" id=2]
 
 [node name="SyncPeer" type="Node"]
 script = ExtResource( 1 )
