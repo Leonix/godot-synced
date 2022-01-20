@@ -13,7 +13,7 @@ class_name Aligned
 # relative to all players.
 #
 # Transform and rotation from this node are only applied on Server.
-# `Aligned` does nothing to compendate how clients see the world.
+# `Aligned` does nothing to compensate how clients see the world.
 # For client-side counterpart, see SyncedProperty.time_depth
 #
 
