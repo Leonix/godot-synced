@@ -2,14 +2,14 @@ extends Area2D
 
 const MOTION_SPEED = 150.0
 
-export var left = false
+@export var left = false
 
 var _motion = 0.0
 var _you_hidden = false
 
-onready var _screen_size_y = get_viewport_rect().size.y
-onready var synced:Synced = $synced
-onready var aligned:Aligned = $aligned
+@onready var _screen_size_y = get_viewport_rect().size.y
+@onready var synced:Synced = $synced
+@onready var aligned:Aligned = $aligned
 
 func _process(_delta):
 	# Hide label instantly for another person's paddle, or after a move for your paddle.

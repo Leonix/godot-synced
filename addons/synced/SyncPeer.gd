@@ -15,7 +15,7 @@ class_name SyncPeer
 # Input facade is an object to read player's input through,
 # like a (limited) drop-in replacement of Godot's Input class.
 # It unifies for Game Logic reading input from local and remote peers.
-onready var facade = $SyncInputFacade
+@onready var facade = $SyncInputFacade
 
 # Local peer on both client and server: last input frame that has been captured.
 # Remote peer on server: last input frame that has been processed from this peer
@@ -28,16 +28,16 @@ var stale_input_frame_count = 0
 # Local peer: state_id during last sampled input
 # Remote peer: World State id visible on remote client during generation 
 # of last processed (or current being processed) input frame
-var state_id setget set_state_id, get_state_id
+var state_id: set = set_state_id, get = get_state_id
 
 # Input sendtable maps numbers (int) to InputMap actions (String) to use
 # for communication between client and server. Sendtable on client 
 # must exactly match sendtable on server.
-onready var input_sendtable = parse_input_map(InputMap)
+@onready var input_sendtable = parse_input_map(InputMap)
 
 # Buffer stores a history of input frames from both local peer and remote peers. 
 # Each input frame is a Dictionary mapping Input action name(String) to value(int or float).
-onready var storage = CircularBuffer.new(SyncManager.input_frames_history_size, get_empty_input_frame())
+@onready var storage = CircularBuffer.new(SyncManager.input_frames_history_size, get_empty_input_frame())
 
 # Used on a local peer to control rate of sending input from client to server
 var _mtime_last_input_batch_sent = 0.0
@@ -50,11 +50,11 @@ func _physics_process(_delay):
 
 		# Client: send input frames to server if time has come
 		if SyncManager.is_client():
-			var delay = OS.get_system_time_msecs() - _mtime_last_input_batch_sent
+			var delay = Time.get_ticks_msec() - _mtime_last_input_batch_sent
 			var target_delay = 1000.0 / SyncManager.input_sendrate
 			if delay >= target_delay:
 				if delay >= 2*target_delay:
-					_mtime_last_input_batch_sent = OS.get_system_time_msecs()
+					_mtime_last_input_batch_sent = Time.get_ticks_msec()
 				else:
 					_mtime_last_input_batch_sent += delay
 				send_input_batch()
@@ -109,7 +109,7 @@ func parse_input_map(input_map):
 		var added = false
 		# To determine type of each action (send as float or as bool)
 		# we look for  among event types
-		for event in input_map.get_action_list(action):
+		for event in input_map.action_get_events(action):
 			if event is InputEventJoypadMotion:
 				send_as_float.append(action)
 				added = true
@@ -131,7 +131,7 @@ func send_input_batch():
 
 	# simulate packet loss
 	if SyncManager.simulate_unreliable_packet_loss_percent > 0:
-		if rand_range(0, 100) < SyncManager.simulate_unreliable_packet_loss_percent:
+		if randf_range(0, 100) < SyncManager.simulate_unreliable_packet_loss_percent:
 			return
 
 	var frames = []
@@ -146,8 +146,8 @@ func send_input_batch():
 	SyncManager.rpc_unreliable('receive_input_batch', 
 		first_input_id, 
 		SyncManager.seq.input_id_to_state_id(first_input_id),
-		PoolIntArray(packed_batch[0]), 
-		PoolStringArray(packed_batch[1]), 
+		PackedInt32Array(packed_batch[0]), # ??? 64?..
+		PackedStringArray(packed_batch[1]), 
 		packed_batch[2]
 	)
 
@@ -245,7 +245,7 @@ static func pack_input_batch(sendtable, frames):
 						client_owned.append(null)
 			
 			if floats.size() > 0 or client_owned.size() > 0:
-				value.append(PoolRealArray(floats))
+				value.append(PackedFloat32Array(floats)) # ??? 64?..
 			if client_owned.size() > 0:
 				value.append(client_owned)
 			values.append(value)
@@ -291,7 +291,7 @@ static func parse_input_batch(sendtable, sendtable_ids: Array, node_paths: Array
 					bools.append(int(v))
 				_:
 					if floats == null:
-						assert((v is Array) or (v is PoolRealArray), 'Array of floats expected')
+						assert((v is Array) or (v is PackedFloat32Array), 'Array of floats expected')
 						floats = v
 					else:
 						assert(v is Array, 'Array expected')

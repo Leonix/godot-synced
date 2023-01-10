@@ -96,7 +96,7 @@ var max_offline_extrapolation = 20
 # simulating network latency. Array of two floats means [min,max] sec, 
 # null to disable. This applies only once, delaying server->client traffic.
 # Client->server traffic is unaffected.
-var simulate_network_latency = null # [0.2, 0.3]
+var simulate_network_latency = [0.0, 0.0] # [0.2, 0.3]
 
 # Refuses to deliver this percent of unreliable packets at random.
 # Simulates network packet loss. Applies both to sync (server->client)
@@ -108,9 +108,9 @@ var seq:SyncSequence = SyncSequence.new(self)
 
 func _ready():
 	get_local_peer()
-	get_tree().connect("network_peer_connected", self, "_player_connected")
-	get_tree().connect("network_peer_disconnected", self, "_player_disconnected")
-	get_tree().connect("server_disconnected", self, "_i_disconnected")
+	get_tree().get_multiplayer().peer_connected.connect(_player_connected)
+	get_tree().get_multiplayer().peer_disconnected.connect(_player_disconnected)
+	get_tree().get_multiplayer().server_disconnected.connect(_i_disconnected)
 
 func _process(delta):
 	seq._process(delta)
@@ -120,7 +120,8 @@ func _physics_process(delta):
 
 # Called from SyncPeer. RPC goes through this proxy rather than SyncPeer itself
 # because of differences in node path between server and client.
-master func receive_input_batch(first_input_id: int, first_state_id: int, sendtable_ids: Array, node_paths: Array, values: Array):
+@rpc(any_peer)
+func receive_input_batch(first_input_id: int, first_state_id: int, sendtable_ids: Array, node_paths: Array, values: Array):
 	var peer = get_sender_peer()
 	if peer:
 		peer.receive_input_batch(first_input_id, first_state_id, sendtable_ids, node_paths, values)
@@ -134,21 +135,21 @@ func get_input_facade(peer_unique_id):
 	if peer_unique_id > 0 and get_tree().network_peer and peer_unique_id == get_tree().multiplayer.get_network_unique_id():
 		peer_unique_id = 0
 	# find_node() avoids warnings on client from get_node() that node does not exist
-	var peer = find_node(str(peer_unique_id), false, false)
+	var peer = find_child(str(peer_unique_id), false, false)
 	if not peer:
 		return SyncInputFacade.FakeInputFacade.new()
 	return get_node("%s/SyncInputFacade" % peer_unique_id)
 
 # Instances of Synced report here upon creation
 func synced_created(synced:Synced, _spawner=null):
-	synced.connect("peer_id_changed", seq, "update_synced_belong_to_players", [synced])
+	synced.peer_id_changed.connect(seq.update_synced_belong_to_players.bind(synced))
 	if synced.belongs_to_peer_id != null:
 		seq.update_synced_belong_to_players(null, synced.belongs_to_peer_id, synced)
 	
 	# Remember this Synced if it contains a client-owned property
 	for prop in synced.synced_properties:
 		var p:SyncedProperty = synced.synced_properties[prop]
-		if p and p.ownership == SyncedProperty.OWNERSHIP_CLIENT_IF_PEER:
+		if p and p.ownership == SyncedProperty.Ownership.CLIENT_IF_PEER:
 			_synced_with_client_owned[str(
 				get_tree().get_root().get_path_to(synced.get_parent())
 			)] = weakref(synced)
@@ -191,7 +192,7 @@ func sample_client_owned_properties()->Dictionary:
 
 # Common helper to get coordinate of Spatial and Node2D in a similar way
 func get_coord(obj):
-	if obj is Spatial:
+	if obj is Node3D:
 		return obj.to_global(Vector3(0, 0, 0))
 	elif obj is Node2D:
 		return obj.to_global(Vector2(0, 0))
@@ -209,7 +210,7 @@ func get_local_peer():
 		local_peer = get_node("0")
 	
 	if not local_peer:
-		local_peer = SyncPeerScene.instance()
+		local_peer = SyncPeerScene.instantiate()
 		local_peer.name = '0'
 		self.add_child(local_peer)
 
@@ -217,14 +218,14 @@ func get_local_peer():
 
 # True if networking enabled and we're the Server
 func is_server():
-	return get_tree() and get_tree().network_peer and get_tree().is_network_server()
+	return get_tree() and get_tree().get_multiplayer() and get_tree().get_multiplayer().multiplayer_peer and get_tree().get_multiplayer().is_server()
 
 # Whether connection to server is currently active. Only maintained on Client.
 var _is_connected_to_server = false
 
 # True if networking enabled and we're a Client
 func is_client():
-	return get_tree() and get_tree().network_peer and _is_connected_to_server and not get_tree().is_network_server()
+	return get_tree() and get_tree().get_multiplayer() and get_tree().get_multiplayer().multiplayer_peer and _is_connected_to_server and not get_tree().get_multiplayer().is_server()
 
 # Returns a SyncPeer child of SyncManager that sent an RPC that is currently
 # being processed, or null if no RPC in progress or peer not found for any reason.
@@ -241,7 +242,7 @@ func get_peer(peer_id:int):
 # Signals from scene tree networking
 func _player_connected(peer_id=null):
 	if is_server() and peer_id > 0:
-		var peer = SyncPeerScene.instance()
+		var peer = SyncPeerScene.instantiate()
 		peer.name = str(peer_id)
 		self.add_child(peer)
 	elif not is_server() and peer_id == 1:

@@ -5,32 +5,32 @@ extends Control
 # https://en.wikipedia.org/wiki/List_of_TCP_and_UDP_port_numbers
 const DEFAULT_PORT = 8910
 
-onready var address = $Address
-onready var host_button = $HostButton
-onready var join_button = $JoinButton
-onready var status_ok = $StatusOk
-onready var status_fail = $StatusFail
-onready var port_forward_label = $PortForward
-onready var find_public_ip_button = $FindPublicIP
+@onready var address = $Address
+@onready var host_button = $HostButton
+@onready var join_button = $JoinButton
+@onready var status_ok = $StatusOk
+@onready var status_fail = $StatusFail
+@onready var port_forward_label = $PortForward
+@onready var find_public_ip_button = $FindPublicIP
 
 var peer = null
 
 func _ready():
 	# Connect all the callbacks related to networking.
-	get_tree().connect("network_peer_connected", self, "_player_connected")
-	get_tree().connect("network_peer_disconnected", self, "_player_disconnected")
-	get_tree().connect("connected_to_server", self, "_connected_ok")
-	get_tree().connect("connection_failed", self, "_connected_fail")
-	get_tree().connect("server_disconnected", self, "_server_disconnected")
+	get_tree().get_multiplayer().peer_connected.connect(_player_connected)
+	get_tree().get_multiplayer().peer_disconnected.connect(_player_disconnected)
+	get_tree().get_multiplayer().connected_to_server.connect(_connected_ok)
+	get_tree().get_multiplayer().connection_failed.connect(_connected_fail)
+	get_tree().get_multiplayer().server_disconnected.connect(_server_disconnected)
 
 #### Network callbacks from SceneTree ####
 
 # Callback from SceneTree.
 func _player_connected(_id):
 	# Someone connected, start the game!
-	var pong = load("res://playground/pong/pong.tscn").instance()
+	var pong = load("res://playground/pong/pong.tscn").instantiate()
 	# Connect deferred so we can safely erase it from the callback.
-	pong.connect("game_finished", self, "_end_game", [], CONNECT_DEFERRED)
+	pong.game_finished.connect(_end_game, CONNECT_DEFERRED)
 
 	get_tree().get_root().add_child(pong)
 	hide()
@@ -87,15 +87,14 @@ func _set_status(text, isok):
 
 
 func _on_host_pressed():
-	peer = NetworkedMultiplayerENet.new()
-	peer.set_compression_mode(NetworkedMultiplayerENet.COMPRESS_RANGE_CODER)
+	peer = ENetMultiplayerPeer.new()
 	var err = peer.create_server(DEFAULT_PORT, 1) # Maximum of 1 peer, since it's a 2-player game.
 	if err != OK:
 		# Is another server running?
 		_set_status("Can't host, address in use.",false)
 		return
 
-	get_tree().set_network_peer(peer)
+	get_tree().get_multiplayer().set_multiplayer_peer(peer)
 	host_button.set_disabled(true)
 	join_button.set_disabled(true)
 	_set_status("Waiting for player...", true)
@@ -111,10 +110,9 @@ func _on_join_pressed():
 		_set_status("IP address is invalid", false)
 		return
 
-	peer = NetworkedMultiplayerENet.new()
-	peer.set_compression_mode(NetworkedMultiplayerENet.COMPRESS_RANGE_CODER)
+	peer = ENetMultiplayerPeer.new()
 	peer.create_client(ip, DEFAULT_PORT)
-	get_tree().set_network_peer(peer)
+	get_tree().get_multiplayer().set_multiplayer_peer(peer)
 
 	_set_status("Connecting...", true)
 

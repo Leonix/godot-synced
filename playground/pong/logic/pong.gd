@@ -4,12 +4,12 @@ signal game_finished()
 
 const SCORE_TO_WIN = 10
 
-onready var synced = $synced
+@onready var synced = $synced
 
-onready var score_left_node = $ScoreLeft
-onready var score_right_node = $ScoreRight
-onready var winner_left = $WinnerLeft
-onready var winner_right = $WinnerRight
+@onready var score_left_node = $ScoreLeft
+@onready var score_right_node = $ScoreRight
+@onready var winner_left = $WinnerLeft
+@onready var winner_right = $WinnerRight
 
 func _ready():
 	synced.score_left = 0

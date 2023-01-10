@@ -30,26 +30,26 @@ class_name Synced
 # Game logic should set this to appropriate peer_id for objects
 # that are normally would read input from Input class or use _input() callback
 # 0 here always means local player. null means no one (dummy input).
-var belongs_to_peer_id = null setget set_belongs_to_peer_id
+var belongs_to_peer_id = null: set = set_belongs_to_peer_id
 
 # Even if this Synced belongs to a certain peer, ignore its coordinate
 # when calculating time depth. Should be false on players' avatars.
 # Safe to leave false on AI-controlled entities.
 # Must be true on UI elements if they use belongs_to_peer_id != null.
-export var ignore_peer_time_depth = false
+@export var ignore_peer_time_depth = false
 
 # Should be set by whoever instanced scene containing this before attaching to scene tree.
 # Affects how Client-Side-Predicted new entities locate their Server counterparts.
 var spawner: Synced = null # !!! CSP-created nodes are not implemented yet
 
 # Input facade to read player's input through instead of builtin Input
-var input setget ,get_input
+var input: get = get_input
 
 # Contains child properties {name:SyncedProperty}. Determines sendtable.
 # Sorted by sync strategy: UNRELIABLE_SYNC, AUTO_SYNC, RELIABLE_SYNC, DO_NOT_SYNC
 # Among one strategy, order matches position in node tree.
 # Properties should go higher in node tree if expected to transmit more often.
-onready var synced_properties = prepare_synced_properties()
+@onready var synced_properties = prepare_synced_properties()
 
 # Controls rate of sending input from client to server
 var _mtime_when_send_next_frame = 0.0
@@ -69,7 +69,7 @@ var _should_auto_read_parent = false
 var is_csp_enabled = false
 
 # Debug helper
-export var log_property_values_each_tick = false
+@export var log_property_values_each_tick = false
 
 # When belongs_to_peer_id changes.
 # Arguments are either int or null.
@@ -111,7 +111,7 @@ func _physics_process(_delta):
 				if is_client_side_predicted(property):
 					pass # can't correct prediction errors though
 				elif SyncManager.seq.interpolation_state_id > property.last_state_id:
-					if property.ready_to_read() and (property.sync_strategy == SyncedProperty.AUTO_SYNC or property.sync_strategy == SyncedProperty.RELIABLE_SYNC):
+					if property.ready_to_read() and (property.sync_strategy == SyncedProperty.Strategy.AUTO_SYNC or property.sync_strategy == SyncedProperty.Strategy.RELIABLE_SYNC):
 						if property.debug_log: print('ext_emp_f')
 						property.write(SyncManager.seq.interpolation_state_id, property._get(-1))
 
@@ -121,7 +121,7 @@ func _physics_process(_delta):
 
 	# Send data frame fromo server to clients if time has come
 	if SyncManager.is_server():
-		var time = OS.get_system_time_msecs()
+		var time = Time.get_ticks_msec()
 		if _mtime_when_send_next_frame <= time:
 			var delay = int(1000 / SyncManager.server_sendrate)
 			if time - _mtime_when_send_next_frame > delay:
@@ -158,7 +158,7 @@ func setup_auto_update_parent():
 	for property in get_children():
 		if property.auto_sync_property != '':
 			_should_auto_read_parent = true
-			if property.sync_strategy != SyncedProperty.DO_NOT_SYNC:
+			if property.sync_strategy != SyncedProperty.Strategy.DO_NOT_SYNC:
 				_should_auto_update_parent = true
 				break
 	if not SyncManager.is_server():
@@ -209,9 +209,9 @@ func is_client_side_predicted(property)->bool:
 	property = property as SyncedProperty
 	if SyncManager.is_server():
 		if belongs_to_peer_id != null:
-			if property.ownership == SyncedProperty.CLIENT_SIDE_PREDICTED_IF_PEER:
+			if property.ownership == SyncedProperty.Ownership.CLIENT_SIDE_PREDICTED_IF_PEER:
 				return true
-			elif property.ownership == SyncedProperty.OWNERSHIP_CLIENT_IF_PEER:
+			elif property.ownership == SyncedProperty.Ownership.CLIENT_IF_PEER:
 				return false
 		# Temporary CSP recently enabled?
 		return SyncManager.seq.state_id < property.last_rollback_from_state_id*2 - property.last_rollback_to_state_id
@@ -219,15 +219,15 @@ func is_client_side_predicted(property)->bool:
 		return false;
 	
 	if is_local_peer():
-		if property.ownership == SyncedProperty.OWNERSHIP_CLIENT_IF_PEER:
+		if property.ownership == SyncedProperty.Ownership.CLIENT_IF_PEER:
 			return false
-		if property.ownership == SyncedProperty.CLIENT_SIDE_PREDICTED_IF_PEER:
+		if property.ownership == SyncedProperty.Ownership.CLIENT_SIDE_PREDICTED_IF_PEER:
 			return true
 
 	# Below logic is ...
 	assert(SyncManager.is_client() and (
 		# ...either OWNERSHIP_SERVER on Synced belonging to local peer...
-		(is_local_peer() and property.ownership == SyncedProperty.OWNERSHIP_SERVER)
+		(is_local_peer() and property.ownership == SyncedProperty.Ownership.SERVER)
 		# ...or any ownership if not belongs to local peer.
 		or (belongs_to_peer_id == null)
 	))
@@ -252,7 +252,7 @@ func is_client_side_predicted(property)->bool:
 	return interp_state_id < property.last_rollback_from_state_id + get_csp_smooth_period(property)
 
 func is_client_owned(property:SyncedProperty, peer_id=0)->bool:
-	if property.ownership != SyncedProperty.OWNERSHIP_CLIENT_IF_PEER:
+	if property.ownership != SyncedProperty.Ownership.CLIENT_IF_PEER:
 		return false
 	if peer_id is String and peer_id == 'any':
 		return belongs_to_peer_id != null
@@ -298,13 +298,13 @@ func prepare_synced_properties():
 			else:
 				property.resize(SyncManager.server_property_history_size)
 		match property.sync_strategy:
-			SyncedProperty.UNRELIABLE_SYNC:
+			SyncedProperty.Strategy.UNRELIABLE_SYNC:
 				result[property.name] = property
-			SyncedProperty.AUTO_SYNC:
+			SyncedProperty.Strategy.AUTO_SYNC:
 				add_later.push_front(property)
-			SyncedProperty.RELIABLE_SYNC:
+			SyncedProperty.Strategy.RELIABLE_SYNC:
 				add_later.append(property)
-			SyncedProperty.DO_NOT_SYNC:
+			SyncedProperty.Strategy.DO_NOT_SYNC:
 				add_last.append(property)
 			var unknown_strategy:
 				assert(false, 'Unknown sync strategy %s' % unknown_strategy)
@@ -312,23 +312,23 @@ func prepare_synced_properties():
 		result[property.name] = property
 	return result
 
-# If attached to a Node2D or a Spatial, add Properties that will sync 
+# If attached to a Node2D or a Node3D, add Properties that will sync 
 # position and rotation (unless already exist)
 func setup_position_sync():
 	var parent_node = get_parent()
-	if not (parent_node is Spatial or parent_node is Node2D):
+	if not (parent_node is Node3D or parent_node is Node2D):
 		return
-	var position_property_name = 'translation' if parent_node is Spatial else 'position'
+	var position_property_name = 'translation' if parent_node is Node3D else 'position'
 	for prop in [position_property_name, 'rotation']:
-		var property = find_node(prop, false, false)
+		var property = find_child(prop, false, false)
 		if property:
 			assert(property.auto_sync_property == prop, '"%s" is a built in property name. When you add it manually, it must still auto update "%s" on parent node' % [prop, prop])
 		else:
 			property = add_synced_property(prop, SyncedProperty.new({
-				ownership = SyncedProperty.OWNERSHIP_CLIENT_IF_PEER if prop == 'rotation' else SyncedProperty.CLIENT_SIDE_PREDICTED_IF_PEER,
-				missing_state_interpolation = SyncedProperty.LINEAR_INTERPOLATION,
-				interpolation = SyncedProperty.LINEAR_INTERPOLATION,
-				sync_strategy = SyncedProperty.AUTO_SYNC,
+				ownership = SyncedProperty.Ownership.CLIENT_IF_PEER if prop == 'rotation' else SyncedProperty.Ownership.CLIENT_SIDE_PREDICTED_IF_PEER,
+				missing_state_interpolation = SyncedProperty.Interpolation.INTERPOLATION,
+				interpolation = SyncedProperty.Interpolation.LINEAR,
+				sync_strategy = SyncedProperty.Strategy.AUTO_SYNC,
 				auto_sync_property = prop
 			}))
 
@@ -336,10 +336,10 @@ func get_rotation_property()->SyncedProperty:
 	return synced_properties.get('rotation')
 	
 func get_position_property()->SyncedProperty:
-	return synced_properties.get('translation' if get_parent() is Spatial else 'position')
+	return synced_properties.get('translation' if get_parent() is Node3D else 'position')
 
 func add_synced_property(name, property: SyncedProperty):
-	assert(synced_properties == null or property.sync_strategy == SyncedProperty.DO_NOT_SYNC)
+	assert(synced_properties == null or property.sync_strategy == SyncedProperty.Strategy.DO_NOT_SYNC)
 	assert(synced_properties == null or not (name in synced_properties))
 	property.name = name
 	add_child(property)
@@ -356,8 +356,8 @@ func get_last_reliable_state_ids(peer_id=null)->Dictionary:
 		return _peer_prop_reliable_state_ids.get(peer_id, {})
 
 	var props = {}
-	for peer_id in multiplayer.get_network_connected_peers():
-		var other_props = _peer_prop_reliable_state_ids.get(peer_id)
+	for pid in multiplayer.get_network_connected_peers():
+		var other_props = _peer_prop_reliable_state_ids.get(pid)
 		if other_props:
 			for prop in other_props:
 				if not (prop in props) or props[prop] > other_props[prop]:
@@ -422,7 +422,7 @@ func send_all_data_frames():
 				# simulate packet loss
 				var drop_unreliable_frame = false
 				if SyncManager.simulate_unreliable_packet_loss_percent > 0:
-					if rand_range(0, 100) < SyncManager.simulate_unreliable_packet_loss_percent:
+					if randf_range(0, 100) < SyncManager.simulate_unreliable_packet_loss_percent:
 						drop_unreliable_frame = true
 
 				var last_consumed_input_id = null
@@ -439,11 +439,11 @@ func send_all_data_frames():
 					var data = pack_data_frame(sendtable, unreliable_frame)
 					var sendtable_ids = data[0]
 					if sendtable_ids != null:
-						sendtable_ids = PoolIntArray(data[0])
+						sendtable_ids = PackedInt32Array(data[0])
 					if can_batch:
-						rpc_unreliable('receive_data_frame', state_id, last_consumed_input_id, sendtable_ids, data[1], csp_property_ids)
+						rpc('receive_data_frame_unreliable', state_id, last_consumed_input_id, sendtable_ids, data[1], csp_property_ids)
 					else:
-						rpc_unreliable_id(peer_id, 'receive_data_frame', state_id, last_consumed_input_id, sendtable_ids, data[1], csp_property_ids)
+						rpc_id(peer_id, 'receive_data_frame_unreliable', state_id, last_consumed_input_id, sendtable_ids, data[1], csp_property_ids)
 
 				if reliable_frame_has_data or (_last_frame_had_data and not unreliable_frame_has_data) or last_consumed_input_id:
 					
@@ -456,25 +456,26 @@ func send_all_data_frames():
 					# we only have to send it once.
 					# In case of (2) we don't really need reliable, but things
 					# are complicated enough to try to optimize for that too.
+					var nonempty_reliable_frame = reliable_frame
 					if not reliable_frame_has_data:
-						reliable_frame = {} # make sure it's not null
+						nonempty_reliable_frame = {} # make sure it's not null
 					
-					var data = pack_data_frame(sendtable, reliable_frame)
+					var data = pack_data_frame(sendtable, nonempty_reliable_frame)
 					var sendtable_ids = data[0]
 					if sendtable_ids != null:
-						sendtable_ids = PoolIntArray(data[0])
+						sendtable_ids = PackedInt32Array(data[0])
 					if can_batch:
-						rpc('receive_data_frame', state_id, last_consumed_input_id, sendtable_ids, data[1], csp_property_ids)
+						rpc('receive_data_frame_reliable', state_id, last_consumed_input_id, sendtable_ids, data[1], csp_property_ids)
 						for peer_id2 in multiplayer.get_network_connected_peers():
 							if not peer_id2 in _peer_prop_reliable_state_ids:
 								_peer_prop_reliable_state_ids[peer_id2] = {}
-							for prop in reliable_frame:
+							for prop in nonempty_reliable_frame:
 								_peer_prop_reliable_state_ids[peer_id2][prop] = state_id
 					else:
-						rpc_id(peer_id, 'receive_data_frame', state_id, last_consumed_input_id, sendtable_ids, data[1], csp_property_ids)
+						rpc_id(peer_id, 'receive_data_frame_reliable', state_id, last_consumed_input_id, sendtable_ids, data[1], csp_property_ids)
 						if not peer_id in _peer_prop_reliable_state_ids:
 							_peer_prop_reliable_state_ids[peer_id] = {}
-						for prop in reliable_frame:
+						for prop in nonempty_reliable_frame:
 							_peer_prop_reliable_state_ids[peer_id][prop] = state_id
 
 		# When data for all peers match, we're done after the first loop iteration
@@ -501,13 +502,13 @@ func prepare_data_frame(peer_id: int, prop_reliable_state_ids:Dictionary, time_d
 			continue
 		
 		match property.shouldsend(prop_reliable_state_ids.get(prop, 0), current_state_id):
-			[SyncedProperty.DO_NOT_SYNC, ..]:
+			[SyncedProperty.Strategy.DO_NOT_SYNC, ..]:
 				pass
-			[SyncedProperty.RELIABLE_SYNC, var value]:
+			[SyncedProperty.Strategy.RELIABLE_SYNC, var value]:
 				frame_reliable[prop] = value
-			[SyncedProperty.UNRELIABLE_SYNC, var value]:
+			[SyncedProperty.Strategy.UNRELIABLE_SYNC, var value]:
 				frame_unreliable[prop] = value
-			[SyncedProperty.AUTO_SYNC, var value]:
+			[SyncedProperty.Strategy.AUTO_SYNC, var value]:
 				unassigned[prop] = value
 			null, false:
 				pass
@@ -526,10 +527,18 @@ func prepare_data_frame(peer_id: int, prop_reliable_state_ids:Dictionary, time_d
 	return [sendtable, frame_reliable, frame_unreliable]
 
 # Called via RPC from Server, executes on Clients. Communicates property values.
-puppet func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, values, csp_properties):
+@rpc(unreliable)
+func receive_data_frame_unreliable(st_id, last_consumed_input_id, sendtable_ids, values, csp_properties):
+	receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, values, csp_properties)
+
+@rpc(reliable)
+func receive_data_frame_reliable(st_id, last_consumed_input_id, sendtable_ids, values, csp_properties):
+	receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, values, csp_properties)
+
+func receive_data_frame(st_id, last_consumed_input_id, sendtable_ids, values, csp_properties):
 	if SyncManager.simulate_network_latency != null:
-		var delay = rand_range(SyncManager.simulate_network_latency[0], SyncManager.simulate_network_latency[1])
-		yield(get_tree().create_timer(delay), "timeout")
+		var delay = randf_range(SyncManager.simulate_network_latency[0], SyncManager.simulate_network_latency[1])
+		await get_tree().create_timer(delay).timeout
 		
 	if not last_consumed_input_id or last_consumed_input_id >= SyncManager.seq.last_consumed_input_id:
 		_update_prop_csp_netframe(csp_properties)
@@ -609,7 +618,7 @@ static func pack_data_frame(sendtable:Array, frame:Dictionary):
 
 # Reverse pack_data_frame() called at receiving end.
 static func parse_data_frame(sendtable:Array, sendtable_ids, values)->Dictionary:
-	assert(sendtable_ids == null or sendtable_ids is Array or sendtable_ids is PoolIntArray)
+	assert(sendtable_ids == null or sendtable_ids is Array or sendtable_ids is PackedInt32Array)
 	assert(values == null or values is Array)
 	var result = {}
 	if values == null:
@@ -803,7 +812,7 @@ func _set(prop, value):
 
 		# NO_INTERPOLATION mode would otherwise set target_state_id-1 to previous value.
 		# Value should change at target_state_id-1 rather than target_state_id.
-		if p.missing_state_interpolation == SyncedProperty.NO_INTERPOLATION:
+		if p.missing_state_interpolation == SyncedProperty.Interpolation.NO_INTERPOLATION:
 			p.write(target_state_id-1, value)
 
 	p.write(target_state_id, value)

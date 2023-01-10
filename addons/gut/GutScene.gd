@@ -1,38 +1,38 @@
 extends Panel
 
-onready var _script_list = $ScriptsList
-onready var _nav = {
+@onready var _script_list = $ScriptsList
+@onready var _nav = {
 	prev = $Navigation/Previous,
 	next = $Navigation/Next,
 	run = $Navigation/Run,
 	current_script = $Navigation/CurrentScript,
 	run_single = $Navigation/RunSingleScript
 }
-onready var _progress = {
+@onready var _progress = {
 	script = $ScriptProgress,
 	script_xy = $ScriptProgress/xy,
 	test = $TestProgress,
 	test_xy = $TestProgress/xy
 }
-onready var _summary = {
+@onready var _summary = {
 	failing = $Summary/Failing,
 	passing = $Summary/Passing,
 	fail_count = 0,
 	pass_count = 0
 }
 
-onready var _extras = $ExtraOptions
-onready var _ignore_pauses = $ExtraOptions/IgnorePause
-onready var _continue_button = $Continue/Continue
-onready var _text_box = $TextDisplay/RichTextLabel
+@onready var _extras = $ExtraOptions
+@onready var _ignore_pauses = $ExtraOptions/IgnorePause
+@onready var _continue_button = $Continue/Continue
+@onready var _text_box = $TextDisplay/RichTextLabel
 
-onready var _titlebar = {
+@onready var _titlebar = {
 	bar = $TitleBar,
 	time = $TitleBar/Time,
 	label = $TitleBar/Title
 }
 
-onready var _user_files = $UserFileViewer
+@onready var _user_files = $UserFileViewer
 
 var _mouse = {
 	down = false,

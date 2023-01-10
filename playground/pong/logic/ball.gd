@@ -4,11 +4,11 @@ const DEFAULT_SPEED = 100
 
 var stopped = false
 
-onready var _screen_size = get_viewport_rect().size
+@onready var _screen_size = get_viewport_rect().size
 
-onready var synced = $synced
-onready var aligned = $aligned
-onready var area = $aligned/area
+@onready var synced = $synced
+@onready var aligned = $aligned
+@onready var area = $aligned/area
 
 func _ready():
 	synced.speed = DEFAULT_SPEED

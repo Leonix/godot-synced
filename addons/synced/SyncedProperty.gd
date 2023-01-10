@@ -9,7 +9,7 @@ extends Node
 class_name SyncedProperty
 
 # Possible property sync strategies (`options.sync_strategy`)
-enum { 
+enum Strategy { 
 	# Never sent to Clients. Not readable on Clients.
 	# Server still records history of values.
 	# Useful for server-side lag compensation.
@@ -37,21 +37,21 @@ enum {
 }
 
 # See possible sync strategies in Enum above
-export(int, 'DO_NOT_SYNC', 'RELIABLE_SYNC', 'UNRELIABLE_SYNC', 'AUTO_SYNC') var sync_strategy = AUTO_SYNC
+@export var sync_strategy: Strategy = Strategy.AUTO_SYNC
 
 # Possible ownership
-enum {
+enum Ownership {
 	# Client-side writes are normally ignored. Server writes are allowed.
 	# Clients receive values over the network (applies network delay).
 	# Temporary client-side prediction mode can be enabled.
-	OWNERSHIP_SERVER,
+	SERVER,
 
 	# When Synced does not belong to any peer, this is the same as OWNERSHIP_SERVER.
 	# If Synced belongs to a peer, do not sync values of this property from server to client.
 	# Instead, writes on server are ignored, writes on clients are allowed and
 	# clients send values of this property to server as part of their input frames.
 	# This is the default for built-in `rotation` sync.
-	OWNERSHIP_CLIENT_IF_PEER,
+	CLIENT_IF_PEER,
 	
 	# When Synced does not belong to any peer, this is the same as OWNERSHIP_SERVER.
 	# If Synced belongs to a peer, writes on client are allowed as well as on server.
@@ -61,26 +61,26 @@ enum {
 }
 
 # See possible sync strategies in Enum above
-export(int, 'OWNERSHIP_SERVER', 'OWNERSHIP_CLIENT_IF_PEER', 'CLIENT_SIDE_PREDICTED_IF_PEER') var ownership = OWNERSHIP_SERVER
+@export var ownership: Ownership = Ownership.SERVER
 
 # See AUTO_SYNC in enum above
-export var strat_stale_delay = 9
+@export var strat_stale_delay: int = 9
 
 # Possible interpolation strategies
-enum {
+enum Interpolation {
 	# Use leftmost known value as interpolation result
 	NO_INTERPOLATION,
 	# Interpolate between left and right value linearly
-	LINEAR_INTERPOLATION
+	LINEAR
 }
 # Interpolattion strategy to use in between two neighboring int state_ids
-export(int, 'NO_INTERPOLATION', 'LINEAR_INTERPOLATION') var interpolation = NO_INTERPOLATION
+@export var interpolation: Interpolation = Interpolation.NO_INTERPOLATION
 # Interpolattion strategy to calculate missing value for int state_id,
 # using two other int state_ids that are far apart.
-export(int, 'NO_INTERPOLATION', 'LINEAR_INTERPOLATION') var missing_state_interpolation = NO_INTERPOLATION
+@export var missing_state_interpolation: Interpolation = Interpolation.NO_INTERPOLATION
 # no more than this numebr of state_ids are allowed to extrapolate
 # when state_id requested from the future
-export var max_extrapolation = 15
+@export var max_extrapolation: int = 15
 
 # Array-like storage place for historic values.
 # This is used as a circular buffer. We keep track of last written index self.last_index,
@@ -109,17 +109,17 @@ var latest_known_server_value = null
 var latest_known_server_state_id = null
 
 # Prints all successfull writes to this to console
-export var debug_log = false
+@export var debug_log = false
 # When set, Synced will write to this SyncedProperty after each _physics_process()
 # and _process() on Server, taking data from proeprty with given name on Synced parent;
 # and will read from it before each _physics_process() and _process() on Client,
 # writing to corresponding property on parent node of Synced.
 # Basically this directly syncs given property on Synced parent node.
 # Useful for `position` and such.
-export var auto_sync_property = ''
+@export var auto_sync_property = ''
 # Storage for additional meta-data.
 # Unrecognized options passed to the constructor go here.
-export var meta: Dictionary
+@export var meta: Dictionary
 
 func _init(options: Dictionary = {}):
 	meta = {}
@@ -300,8 +300,8 @@ func _extrapolate(state_id):
 
 	# floor state_id to closest integer in order to simulate interpolated behaviour
 	# of interpolation=NO_INTERPOLATION, missing_state_interpolation=LINEAR_INTERPOLATION
-	if self.interpolation != LINEAR_INTERPOLATION:
-		assert(self.interpolation == NO_INTERPOLATION, 'SyncedProperty interpolation strategy not implemented for extrapolation %s' % self.interpolation)
+	if self.interpolation != Interpolation.LINEAR:
+		assert(self.interpolation == Interpolation.NO_INTERPOLATION, 'SyncedProperty interpolation strategy not implemented for extrapolation %s' % self.interpolation)
 		state_id = int(state_id)
 
 	return _interpolate(
@@ -317,13 +317,13 @@ func _extrapolate(state_id):
 # Note that state_id is not always between left_state_id and right_state_id
 # because this same function is used during extrapolation, too.
 static func _interpolate(strategy, left_state_id:int, left_value, right_state_id:int, right_value, state_id:float):
-	if strategy == NO_INTERPOLATION:
+	if strategy == Interpolation.NO_INTERPOLATION:
 		if state_id < right_state_id:
 			return left_value
 		else:
 			return right_value
 			
-	assert(strategy == LINEAR_INTERPOLATION, 'Unknown SyncedProperty interpolation strategy %s' % strategy)
+	assert(strategy == Interpolation.LINEAR, 'Unknown SyncedProperty interpolation strategy %s' % strategy)
 	return lerp(
 		left_value, 
 		right_value, 
@@ -359,15 +359,15 @@ func resize(new_size):
 
 # Determine value to be sent and protocol preference
 func shouldsend(last_reliable_state_id:int, current_state_id:int=-1):
-	if self.sync_strategy == DO_NOT_SYNC or not ready_to_read():
+	if self.sync_strategy == Strategy.DO_NOT_SYNC or not ready_to_read():
 		return null
 	last_reliable_state_id = relative_state_id(last_reliable_state_id)
 	current_state_id = relative_state_id(current_state_id)
 	if not changed(last_reliable_state_id, current_state_id):
 		return null
 	# When property stops changing, AUTO_SYNC becomes RELIABLE_SYNC
-	if self.sync_strategy == AUTO_SYNC and current_state_id - last_changed_state_id > strat_stale_delay:
-		return [RELIABLE_SYNC, _get(current_state_id)]
+	if self.sync_strategy == Strategy.AUTO_SYNC and current_state_id - last_changed_state_id > strat_stale_delay:
+		return [Strategy.RELIABLE_SYNC, _get(current_state_id)]
 	return [self.sync_strategy, _get(current_state_id)]
 
 # Return true if property changed between these two states

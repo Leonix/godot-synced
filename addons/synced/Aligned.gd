@@ -17,7 +17,7 @@ class_name Aligned
 # For client-side counterpart, see SyncedProperty.time_depth
 #
 
-onready var synced: Synced
+@onready var synced: Synced
 
 # `Aligned` works by adding two SyncedProperties to sibling Synced object.
 # These properties are set up to track rotation and position (translation for Spatial)
@@ -25,8 +25,8 @@ onready var synced: Synced
 
 func _ready():
 	# Make sure we're attached to either Spatial or Node2d
-	assert(get_parent() is Spatial or get_parent() is Node2D, "Aligned node's parent must be either a Node2D or a Spatial.")
-	if get_parent() is Spatial:
+	assert(get_parent() is Node3D or get_parent() is Node2D, "Aligned node's parent must be either a Node2D or a Spatial.")
+	if get_parent() is Node3D:
 		assert('rotation' in self and 'translation' in self, "Aligned node must be set as script for a Spatial.")
 	else:
 		assert('rotation' in self and 'position' in self, "Aligned node must be set as script for a Node2D.")
